@@ -1,0 +1,31 @@
+services:
+  logsonfire:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # "production" marks auth cookies Secure (HTTPS-only) — only correct
+      # if a TLS-terminating reverse proxy sits in front of this container.
+      # Accessing the container directly over plain HTTP (e.g. local/LAN
+      # testing) needs ENV=development instead, or the browser will silently
+      # drop the login cookies and every request after login will 401.
+      ENV: ${ENV:-production}
+      DB_PATH: /data/logsonfire.db
+      # Required — generate with: openssl rand -base64 32
+      # Losing this key permanently locks you out of every stored SSH
+      # credential (host passwords/private keys). See README.
+      MASTER_KEY: "${MASTER_KEY:?set MASTER_KEY in .env, e.g. output of: openssl rand -base64 32}"
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in .env, e.g. output of: openssl rand -base64 48}"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      # If unset, a random password is generated and printed once to the
+      # container logs on first boot — `docker compose logs logsonfire`.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Set to true only when running behind a TLS-terminating reverse proxy
+      # (nginx/Traefik/Caddy) that sets X-Forwarded-Proto/X-Forwarded-For.
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-false}
+    volumes:
+      - logsonfire_data:/data
+    restart: unless-stopped
+
+volumes:
+  logsonfire_data:
