@@ -7,7 +7,6 @@ import {
   ActionIcon,
   Badge,
   Button,
-  CopyButton,
   Group,
   Indicator,
   Menu,
@@ -24,25 +23,74 @@ import {
   IconSearch,
   IconTrash,
 } from '@tabler/icons-react'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
+import { copyToClipboard } from '../lib/clipboard'
 import AgentForm from '../components/AgentForm'
 import Modal from '../components/Modal'
-import type { Agent, AgentCreateInput, AgentCreateResult, AgentUpdateInput } from '../types/models'
+import type {
+  Agent,
+  AgentCreateInput,
+  AgentCreateResult,
+  AgentUpdateInput,
+  InstallLinkResult,
+} from '../types/models'
 
 dayjs.extend(relativeTime)
 
-/** The one-liner from README's Quick start, pre-filled with this server's
- * own origin (from the browser, so it's correct whether you're on
- * localhost, a LAN hostname, or a real domain behind a proxy) and the
- * freshly generated token — meant to be pasted straight into an SSH
- * session on the host being enrolled. --server needs ws(s)://, but the
- * script itself is fetched over http(s):// — same origin, different
- * scheme, see agent/install.sh's own scheme-derivation comment. */
-function installCommand(token: string): string {
+/** This server's own WebSocket origin, derived from wherever the browser
+ * currently is (localhost, a LAN hostname, a real domain behind a proxy —
+ * all handled automatically) rather than asked for separately. */
+function wsBase(): string {
   const isHttps = window.location.protocol === 'https:'
-  const httpBase = `${window.location.protocol}//${window.location.host}`
-  const wsBase = `${isHttps ? 'wss' : 'ws'}://${window.location.host}`
-  return `curl -fsSL ${httpBase}/agent/install.sh | sudo bash -s -- --server ${wsBase} --token ${token}`
+  return `${isHttps ? 'wss' : 'ws'}://${window.location.host}`
+}
+
+function httpBase(): string {
+  return `${window.location.protocol}//${window.location.host}`
+}
+
+/** The manual fallback one-liner (README's Quick start) — has the token as
+ * a plain CLI argument, so it lands in the target host's shell history and
+ * is briefly visible via `ps` while it runs. Only shown if the one-time
+ * install link (below) couldn't be generated. */
+function manualInstallCommand(token: string): string {
+  return `curl -fsSL ${httpBase()}/agent/install.sh | sudo bash -s -- --server ${wsBase()} --token ${token}`
+}
+
+function oneTimeInstallCommand(code: string): string {
+  return `curl -fsSL ${httpBase()}/agent/install/${code} | sudo bash`
+}
+
+/** A code/copy-button row — copyToClipboard (not Mantine's CopyButton,
+ * which has no fallback) so this also works over plain HTTP on a non-
+ * localhost origin (e.g. http://pees:8000), where navigator.clipboard is
+ * present but silently refuses to write — found by direct testing. */
+function CopyField({ value, mono = true }: { value: string; mono?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Group wrap="nowrap" gap="xs" align="flex-start">
+      <Text
+        component={mono ? 'code' : 'span'}
+        style={{ flex: 1, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
+        bg="var(--mantine-color-default-hover)"
+        p="xs"
+        fz="sm"
+      >
+        {value}
+      </Text>
+      <Button
+        size="xs"
+        color={copied ? 'teal' : 'flame'}
+        onClick={async () => {
+          const ok = await copyToClipboard(value)
+          setCopied(ok)
+          if (ok) setTimeout(() => setCopied(false), 2000)
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </Button>
+    </Group>
+  )
 }
 
 export default function AgentsPage() {
@@ -53,6 +101,9 @@ export default function AgentsPage() {
   const [creating, setCreating] = useState(false)
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
   const [revealedToken, setRevealedToken] = useState<AgentCreateResult | null>(null)
+  const [installLink, setInstallLink] = useState<InstallLinkResult | null>(null)
+  const [installLinkError, setInstallLinkError] = useState<string | null>(null)
+  const [installLinkLoading, setInstallLinkLoading] = useState(false)
 
   const refresh = useCallback(async () => {
     setAgents(await api.get<Agent[]>('/api/agents'))
@@ -79,10 +130,31 @@ export default function AgentsPage() {
     return sorted
   }, [agents, search, sortStatus])
 
+  async function reveal(agentId: string, result: AgentCreateResult) {
+    setRevealedToken(result)
+    setInstallLink(null)
+    setInstallLinkError(null)
+    setInstallLinkLoading(true)
+    try {
+      // The token only ever exists in plaintext here in the browser and in
+      // this one-shot response — the server never persisted it, so it has
+      // to be handed back for the one-time install link to embed it.
+      const link = await api.post<InstallLinkResult>(`/api/agents/${agentId}/install-link`, {
+        token: result.token,
+        server_url: wsBase(),
+      })
+      setInstallLink(link)
+    } catch (err) {
+      setInstallLinkError(err instanceof ApiError ? err.message : 'Failed to create an install link')
+    } finally {
+      setInstallLinkLoading(false)
+    }
+  }
+
   async function handleCreate(input: AgentCreateInput | AgentUpdateInput) {
     const result = await api.post<AgentCreateResult>('/api/agents', input as AgentCreateInput)
     setCreating(false)
-    setRevealedToken(result)
+    await reveal(result.agent.id, result)
     await refresh()
   }
 
@@ -102,8 +174,14 @@ export default function AgentsPage() {
   async function handleReissue(agent: Agent) {
     if (!confirm(`Reissue "${agent.name}"'s token? The current one stops working immediately.`)) return
     const result = await api.post<AgentCreateResult>(`/api/agents/${agent.id}/reissue-token`)
-    setRevealedToken(result)
+    await reveal(agent.id, result)
     await refresh()
+  }
+
+  function closeRevealedToken() {
+    setRevealedToken(null)
+    setInstallLink(null)
+    setInstallLinkError(null)
   }
 
   return (
@@ -224,51 +302,47 @@ export default function AgentsPage() {
       )}
 
       {revealedToken && (
-        <Modal onClose={() => setRevealedToken(null)} title={`Token for "${revealedToken.agent.name}"`} wide>
+        <Modal onClose={closeRevealedToken} title={`Token for "${revealedToken.agent.name}"`} wide>
           <Stack gap="sm">
             <Text size="sm" c="dimmed">
-              Shown once — it cannot be recovered later, only reissued.
+              The token itself is shown once below — it cannot be recovered
+              later, only reissued.
             </Text>
 
             <Text size="sm" fw={600}>
               Paste directly into an SSH session on the host to monitor:
             </Text>
-            <Group wrap="nowrap" gap="xs" align="flex-start">
-              <Text
-                component="code"
-                style={{ flex: 1, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
-                bg="var(--mantine-color-default-hover)"
-                p="xs"
-                fz="sm"
-              >
-                {installCommand(revealedToken.token)}
+            {installLinkLoading && (
+              <Text size="sm" c="dimmed">
+                Generating a one-time install link…
               </Text>
-              <CopyButton value={installCommand(revealedToken.token)}>
-                {({ copied, copy }) => (
-                  <Button onClick={copy} color={copied ? 'teal' : 'flame'} size="xs">
-                    {copied ? 'Copied' : 'Copy'}
-                  </Button>
-                )}
-              </CopyButton>
-            </Group>
+            )}
+            {installLink && (
+              <>
+                <CopyField value={oneTimeInstallCommand(installLink.code)} />
+                <Text size="xs" c="dimmed">
+                  Single use, expires in {Math.round(installLink.expires_in_seconds / 60)} minutes — the
+                  token itself never touches this host's shell history, only
+                  this one-time (already-spent-after-use) link code does.
+                </Text>
+              </>
+            )}
+            {installLinkError && !installLinkLoading && (
+              <>
+                <Text size="sm" c="red">
+                  Couldn't create a one-time link ({installLinkError}) — falling back to the direct
+                  command below. This puts the token in the target host's shell history.
+                </Text>
+                <CopyField value={manualInstallCommand(revealedToken.token)} />
+              </>
+            )}
 
             <Text size="sm" c="dimmed" mt="xs">
               Or just the token, e.g. to edit <code>/etc/logsonfire-agent/config.toml</code> by hand:
             </Text>
-            <Group wrap="nowrap" gap="xs">
-              <Text component="code" style={{ flex: 1, wordBreak: 'break-all' }} bg="var(--mantine-color-default-hover)" p="xs" fz="sm">
-                {revealedToken.token}
-              </Text>
-              <CopyButton value={revealedToken.token}>
-                {({ copied, copy }) => (
-                  <Button onClick={copy} color={copied ? 'teal' : 'flame'} size="xs" variant="default">
-                    {copied ? 'Copied' : 'Copy'}
-                  </Button>
-                )}
-              </CopyButton>
-            </Group>
+            <CopyField value={revealedToken.token} />
 
-            <Button onClick={() => setRevealedToken(null)} variant="default">
+            <Button onClick={closeRevealedToken} variant="default">
               I've copied it
             </Button>
           </Stack>

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.install_links import get_install_link_store
+from app.agents.install_links import LINK_TTL_SECONDS
 from app.agents.registry import AgentOfflineError, AgentTimeoutError, get_agent_registry
 from app.agents.service import enroll_agent, reissue_token as reissue_token_service
 from app.core.audit import record as audit_record
@@ -11,7 +13,7 @@ from app.core.permissions import AGENT_READ, AGENT_WRITE
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
-from app.schemas.agent import AgentCreate, AgentCreateResult, AgentOut, AgentUpdate
+from app.schemas.agent import AgentCreate, AgentCreateResult, AgentOut, AgentUpdate, InstallLinkCreate, InstallLinkOut
 from app.schemas.browse import BrowseResponse, DirEntryOut
 from app.security.deps import require_permission
 
@@ -106,6 +108,28 @@ async def reissue_token(
     token = await reissue_token_service(db, agent)
     await audit_record(db, user_id=user.id, event_type="agent_token_reissued", target_type="agent", target_id=agent_id)
     return AgentCreateResult(agent=_to_out(agent), token=token)
+
+
+@router.post("/{agent_id}/install-link", response_model=InstallLinkOut)
+async def create_install_link(
+    agent_id: str,
+    payload: InstallLinkCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission(AGENT_WRITE)),
+) -> InstallLinkOut:
+    """Generates a one-time `GET /agent/install/{code}` download link with
+    --server/--token already baked in, so `curl ... | sudo bash` needs no
+    arguments at all — the real bearer token never has to appear in a shell
+    history or a `ps` listing on the host being enrolled. The token is
+    taken from the request body (this endpoint's caller, i.e. the browser
+    that just received it from create_agent/reissue_token) rather than the
+    database, since the server never stores it in plaintext anywhere.
+    """
+    await _get_agent_or_404(db, agent_id)  # 404s cleanly if the id is bogus
+    if not payload.is_valid_scheme:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "server_url must start with ws:// or wss://")
+    code = get_install_link_store().create(agent_id, payload.token, payload.server_url)
+    return InstallLinkOut(code=code, expires_in_seconds=LINK_TTL_SECONDS)
 
 
 @router.get("/{agent_id}/browse", response_model=BrowseResponse)

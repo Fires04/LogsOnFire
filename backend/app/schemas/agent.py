@@ -30,3 +30,21 @@ class AgentCreateResult(BaseModel):
     exactly once here and never again."""
     agent: AgentOut
     token: str
+
+
+class InstallLinkCreate(BaseModel):
+    """The browser already holds the plaintext token (from AgentCreateResult
+    — the server never persists it) and knows its own server_url (derived
+    from window.location) — both are handed back here purely to generate a
+    one-time download link, never stored beyond the link's short TTL."""
+    token: str = Field(min_length=1)
+    server_url: str = Field(min_length=1)
+
+    @property
+    def is_valid_scheme(self) -> bool:
+        return self.server_url.startswith("ws://") or self.server_url.startswith("wss://")
+
+
+class InstallLinkOut(BaseModel):
+    code: str
+    expires_in_seconds: int

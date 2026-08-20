@@ -3,14 +3,21 @@
 #   curl -fsSL https://<your-server>/agent/install.sh | sudo bash -s -- \
 #       --server wss://<your-server> --token <token-from-the-Agents-page>
 #
+# --server/--token can also come from LOGSONFIRE_INSTALL_SERVER/
+# LOGSONFIRE_INSTALL_TOKEN env vars instead of CLI args — that's what the
+# Agents page's one-time install-link uses (GET /agent/install/<code>,
+# see api/routes/agent_install.py), so the real bearer token never has to
+# appear in this shell's history or in `ps` output while the command runs;
+# only a meaningless, already-consumed one-time code does.
+#
 # Requires: python3 >= 3.11, pip. Creates a dedicated low-privilege
 # 'logsonfire-agent' system user (in the 'systemd-journal'/'adm' groups so
 # it can read the journal without running as root), installs the agent as a
 # systemd service, and writes its config to /etc/logsonfire-agent/.
 set -euo pipefail
 
-SERVER_URL=""
-TOKEN=""
+SERVER_URL="${LOGSONFIRE_INSTALL_SERVER:-}"
+TOKEN="${LOGSONFIRE_INSTALL_TOKEN:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --server) SERVER_URL="$2"; shift 2 ;;
