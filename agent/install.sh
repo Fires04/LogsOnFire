@@ -10,7 +10,8 @@
 # appear in this shell's history or in `ps` output while the command runs;
 # only a meaningless, already-consumed one-time code does.
 #
-# Requires: python3 >= 3.11, pip. Creates a dedicated low-privilege
+# Requires: python3 >= 3.11 (pip is auto-installed via apt/dnf/yum/apk/
+# pacman if missing). Creates a dedicated low-privilege
 # 'logsonfire-agent' system user (in the 'systemd-journal'/'adm' groups so
 # it can read the journal without running as root), installs the agent as a
 # systemd service, and writes its config to /etc/logsonfire-agent/.
@@ -29,6 +30,44 @@ done
 if [[ -z "$SERVER_URL" || -z "$TOKEN" ]]; then
   echo "usage: install.sh --server wss://your-server --token <token>" >&2
   exit 1
+fi
+
+# Fail fast, before creating any user/files, on the two prerequisites pip
+# install would otherwise fail on with a much less obvious error:
+# python3 >= 3.11 (agentcore/agent's requires-python), and pip itself —
+# many minimal distro images (notably Debian/Ubuntu's default cloud
+# images) ship python3 without the pip module at all ("No module named
+# pip"), since it's a separate package. Auto-install it via whatever
+# package manager is actually present rather than just erroring, since
+# that's the single most common reason this script fails on a fresh host.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required but was not found on this host. Install it first (e.g. 'apt install python3') and re-run." >&2
+  exit 1
+fi
+if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+  echo "python3 is too old ($(python3 --version 2>&1)) — logsonfire-agent needs Python 3.11 or newer." >&2
+  exit 1
+fi
+if ! python3 -m pip --version >/dev/null 2>&1; then
+  echo "python3's pip module is missing — attempting to install it via this host's package manager…" >&2
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq python3-pip
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y -q python3-pip
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y -q python3-pip
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache -q py3-pip
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm --quiet python-pip
+  else
+    echo "Don't know how to install pip on this distro — install python3-pip (or your distro's equivalent) manually and re-run." >&2
+    exit 1
+  fi
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    echo "pip still isn't available after attempting to install it — install it manually and re-run." >&2
+    exit 1
+  fi
 fi
 
 # --server is the WebSocket URL the *agent* connects to at runtime
