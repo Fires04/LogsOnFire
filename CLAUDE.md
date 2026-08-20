@@ -147,6 +147,26 @@ only ever asks the connected agent over `/ws/agent` and waits for a reply.
   a stale "live" status forever instead of a clear closed/disconnected
   state.
 
+- **Upgrading an already-installed agent needs `--force-reinstall`.**
+  `agent`/`agentcore` wheels are rebuilt from source on every server image
+  build, but `pyproject.toml`'s `version = "0.1.0"` isn't bumped
+  automatically — `pip install --upgrade` on a host that already has that
+  exact version string installed is a silent no-op, even though the
+  server's `/agent/*.whl` content changed. Verified directly: a docker-mode
+  log source resolved with "unknown log source mode: 'docker'" against a
+  freshly-rebuilt server until the agent host was re-installed with
+  `pip install --upgrade --force-reinstall` from the new wheels. Bump the
+  version on any real agent/agentcore code change, or always pass
+  `--force-reinstall` when re-running install.sh after a server rebuild.
+
+- **The "docker" log source mode needs the agent's OS user in the `docker`
+  group — opt-in, not automatic.** Unlike journal access,
+  `usermod -aG docker` is roughly root-equivalent (anyone in that group can
+  trivially root the host via a bind-mounted container), so
+  `agent/install.sh` asks explicitly (or reads
+  `LOGSONFIRE_INSTALL_ENABLE_DOCKER=yes|no` for non-interactive installs) —
+  never add it unconditionally the way journal/adm group membership is.
+
 ## Testing
 
 Three independent test suites, one per package (they don't share a venv —

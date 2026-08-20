@@ -5,6 +5,7 @@ from app.models.agent import Agent
 from app.models.audit import AuditLog
 from app.models.dashboard import Dashboard, DashboardPanel
 from app.models.log_source import LogSource
+from app.models.saved_filter import SavedFilter
 from app.models.user import Permission, ResourceGrant, Role, User
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "Dashboard",
     "DashboardPanel",
     "LogSource",
+    "SavedFilter",
     "Permission",
     "ResourceGrant",
     "Role",

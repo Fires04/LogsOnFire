@@ -46,6 +46,7 @@ from app.core.permissions import LOG_VIEW
 from app.database import get_db
 from app.models.log_source import LogSource
 from app.models.user import User
+from app.core.docker_paths import make_docker_path
 from app.core.journal_paths import make_journal_path
 from app.security.deps import ACCESS_COOKIE, has_permission
 from app.security.jwt import decode_token
@@ -190,6 +191,10 @@ async def ws_logs(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> N
             # Deterministic like exact_path — always resolves to itself, no
             # client-side pattern-match step needed.
             target_path = client_resolved_path or make_journal_path(log_source.path_or_pattern)
+        elif log_source.mode == "docker":
+            # Deterministic too — a docker source names exactly one
+            # container, same non-pattern-matching category as journal.
+            target_path = client_resolved_path or make_docker_path(log_source.path_or_pattern)
         elif client_resolved_path:
             target_path = client_resolved_path
         else:

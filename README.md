@@ -18,8 +18,12 @@ different hosts at once.
   host is ever needed, and it only ever reads that host's own filesystem/
   journal (no remote credentials to manage).
 - **Log sources** per agent: an exact path, a glob pattern
-  (`/var/www/*/logs/*.log`), a regex filter over a directory tree, or the
-  systemd journal (`journalctl`, whole journal or one unit).
+  (`/var/www/*/logs/*.log`), a regex filter over a directory tree, the
+  systemd journal (`journalctl`, whole journal or one unit), or a single
+  Docker container's logs (`docker logs -f`) — the last one needs the
+  agent's user in the host's `docker` group, which `install.sh` asks about
+  explicitly rather than adding automatically (it's roughly root-equivalent
+  access).
 - **File browser** for picking a log source's path directly instead of
   typing it — shows each entry's permissions and a best-effort "can you
   actually read this" indicator, resolved by the agent on its own host.
@@ -30,7 +34,8 @@ different hosts at once.
 - **Live grep bar**: type real `grep` flags (`-i`, `-v`, `-A/-B/-C N`, `-w`,
   `-x`, `-E`, `-F`, `-m`, `-e`) and the view filters live, using the actual
   `grep` binary — not a reimplementation — so it also doubles as practice for
-  real grep syntax.
+  real grep syntax. Frequently-used expressions can be saved (per user) and
+  re-applied from a dropdown on any log panel instead of retyping them.
 - **Dashboards**: multiple log panels from different agents, all live,
   multiplexed over a single WebSocket connection per open tab.
 - **Open any log/dashboard in a new tab** (`/view/log/:id`,
@@ -235,13 +240,15 @@ cd agentcore && source .venv/bin/activate && python -m pytest
 
 - Single admin user today; the schema (`users`/`roles`/`permissions`/
   `resource_grants`) is ready for multi-user + per-agent/per-log ACLs, but
-  the UI to manage that doesn't exist yet.
-- The dashboard layout editor and the Agents/Hosts UI are mid-migration to
-  a drag-and-drop grid (`react-grid-layout`) and a Mantine-based redesign —
-  check the current state of `frontend/src` before assuming either is
-  finished.
+  the UI to manage that doesn't exist yet. Saved grep filters are already
+  per-user (`saved_filters` table), ahead of the rest of that work.
 - WebSocket reconnect (both browser↔server and agent↔server) uses
   exponential backoff and resubscribes/resumes automatically, but there's
   no UI indicator distinguishing "briefly reconnecting" from "agent has
   been unreachable for 10 minutes" beyond the status dot's tooltip and the
   Agents page's last-seen timestamp.
+- Upgrading an already-installed agent to a newer `agentcore`/`agent` build
+  needs `pip install --upgrade --force-reinstall` (or a version bump in
+  `agent/pyproject.toml` / `agentcore/pyproject.toml`) — a plain
+  `--upgrade` is a silent no-op when the version string hasn't changed,
+  even though the server's `/agent/*.whl` content has. See CLAUDE.md.

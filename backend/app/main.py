@@ -12,7 +12,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.routes import agent_install, agents, auth, dashboards, log_sources, ws_agent, ws_logs
+from app.api.routes import agent_install, agents, auth, dashboards, log_sources, saved_filters, ws_agent, ws_logs
 from app.bootstrap import bootstrap
 from app.config import get_settings
 from app.core.csrf import CsrfMiddleware
@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(log_sources.router)
     app.include_router(log_sources.global_router)
     app.include_router(dashboards.router)
+    app.include_router(saved_filters.router)
     app.include_router(ws_logs.router)
     app.include_router(ws_agent.router)
     app.include_router(agent_install.router)

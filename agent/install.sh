@@ -91,6 +91,34 @@ fi
 usermod -aG systemd-journal logsonfire-agent 2>/dev/null || true
 usermod -aG adm logsonfire-agent 2>/dev/null || true
 
+# Docker container log support ("docker" log source mode) needs the
+# agent's user in the 'docker' group to reach the daemon socket — unlike
+# the journal group above, that's roughly root-equivalent access (anyone
+# in 'docker' can trivially root the host via a bind-mounted container),
+# so this is opt-in and asked explicitly, never added automatically.
+# LOGSONFIRE_INSTALL_ENABLE_DOCKER=yes|no skips the prompt for scripted/
+# non-interactive installs; with no override and no controlling tty
+# (piped through something other than an interactive shell) it defaults
+# to "no" rather than hang waiting for input that will never come.
+ENABLE_DOCKER="${LOGSONFIRE_INSTALL_ENABLE_DOCKER:-}"
+if [[ -z "$ENABLE_DOCKER" ]] && (command -v docker >/dev/null 2>&1 || [[ -S /var/run/docker.sock ]]); then
+  if [[ -e /dev/tty ]]; then
+    read -r -p "Docker detected on this host — let the agent read container logs via 'docker logs'? This adds it to the 'docker' group, which is roughly root-equivalent access (think of it like sudo). [y/N] " ENABLE_DOCKER < /dev/tty || ENABLE_DOCKER="n"
+  else
+    ENABLE_DOCKER="n"
+  fi
+fi
+case "${ENABLE_DOCKER,,}" in
+  y|yes)
+    usermod -aG docker logsonfire-agent
+    echo "Added logsonfire-agent to the 'docker' group — container logs are available as a log source now."
+    ;;
+  *)
+    echo "Skipped Docker group membership — container logs won't be readable yet. To enable it later:" >&2
+    echo "  usermod -aG docker logsonfire-agent && systemctl restart logsonfire-agent" >&2
+    ;;
+esac
+
 # Wheel filenames carry a real version (logsonfire_agentcore-0.1.0-...whl) —
 # a plain "-latest-" alias isn't a valid wheel filename, so read the actual
 # names from MANIFEST (one filename per line, written at image build time)

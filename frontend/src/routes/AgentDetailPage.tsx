@@ -26,12 +26,14 @@ const MODE_LABEL: Record<LogSource['mode'], string> = {
   glob: 'glob',
   regex: 'regex',
   journal: 'journal',
+  docker: 'docker',
 }
 const MODE_COLOR: Record<LogSource['mode'], string> = {
   exact_path: 'blue',
   glob: 'grape',
   regex: 'orange',
   journal: 'teal',
+  docker: 'indigo',
 }
 
 export default function AgentDetailPage() {

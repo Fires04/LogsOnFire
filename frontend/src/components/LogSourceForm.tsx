@@ -17,7 +17,28 @@ const MODE_OPTIONS: { value: LogSourceMode; label: string }[] = [
   { value: 'glob', label: 'Glob pattern (*, ?, **)' },
   { value: 'regex', label: 'Regex over a directory' },
   { value: 'journal', label: 'systemd journal (journalctl)' },
+  { value: 'docker', label: 'Docker container (docker logs)' },
 ]
+
+// Neither journal nor docker names a filesystem path, so both are
+// deterministic (no browse/pattern-match step) and get their own
+// label/placeholder rather than falling into the path-shaped fields below.
+const PATH_FIELD_LABEL: Record<LogSourceMode, string> = {
+  exact_path: 'File path',
+  glob: 'Glob pattern',
+  regex: 'Regex (applied to the path relative to the base directory)',
+  journal: 'Unit name (or * for the whole journal)',
+  docker: 'Container name or ID',
+}
+const PATH_FIELD_PLACEHOLDER: Record<LogSourceMode, string> = {
+  exact_path: '/var/log/nginx/access.log',
+  glob: '/var/www/*/logs/*.log',
+  regex: String.raw`logs/.*\.log$`,
+  journal: 'nginx.service',
+  docker: 'my-app-container',
+}
+// Modes with nothing on the agent's filesystem to browse to.
+const NON_BROWSABLE_MODES: LogSourceMode[] = ['regex', 'journal', 'docker']
 
 export default function LogSourceForm({ agentId, onCreate }: Props) {
   const [label, setLabel] = useState('')
@@ -119,29 +140,13 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
         <Group align="flex-end" gap="xs">
           <TextInput
             style={{ flex: 1 }}
-            label={
-              mode === 'exact_path'
-                ? 'File path'
-                : mode === 'glob'
-                  ? 'Glob pattern'
-                  : mode === 'journal'
-                    ? 'Unit name (or * for the whole journal)'
-                    : 'Regex (applied to the path relative to the base directory)'
-            }
+            label={PATH_FIELD_LABEL[mode]}
             value={pathOrPattern}
             onChange={(e) => setPathOrPattern(e.currentTarget.value)}
-            placeholder={
-              mode === 'glob'
-                ? '/var/www/*/logs/*.log'
-                : mode === 'exact_path'
-                  ? '/var/log/nginx/access.log'
-                  : mode === 'journal'
-                    ? 'nginx.service'
-                    : String.raw`logs/.*\.log$`
-            }
+            placeholder={PATH_FIELD_PLACEHOLDER[mode]}
             required
           />
-          {mode !== 'regex' && mode !== 'journal' && (
+          {!NON_BROWSABLE_MODES.includes(mode) && (
             <Button variant="default" onClick={() => setBrowsing('path')}>
               Browse…
             </Button>

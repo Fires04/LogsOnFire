@@ -9,7 +9,7 @@ import {
   Text,
   useMantineColorScheme,
 } from '@mantine/core'
-import { IconLogout, IconMoon, IconSun, IconTerminal2 } from '@tabler/icons-react'
+import { IconLogout, IconMoon, IconSun } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { api } from '../lib/api'
 import type { Agent } from '../types/models'
@@ -45,7 +45,7 @@ export default function AppShell() {
       <MantineAppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
-            <IconTerminal2 size={22} color="var(--mantine-color-flame-6)" />
+            <img src="/logo.png" alt="" width={26} height={26} style={{ display: 'block' }} />
             <Text fw={700}>Logs On Fire</Text>
           </Group>
           <Group gap="sm">
