@@ -4,14 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-LogSourceMode = Literal["exact_path", "glob", "regex", "journal"]
+LogSourceMode = Literal["exact_path", "glob", "regex", "journal", "docker"]
 
 
 class LogSourceCreate(BaseModel):
     label: str = Field(min_length=1, max_length=255)
     mode: LogSourceMode
     # For "journal" mode this holds a systemd unit name (e.g. "nginx.service"),
-    # or "*" for the whole journal — not a filesystem path.
+    # or "*" for the whole journal; for "docker" mode a container name or
+    # ID — neither is a filesystem path.
     path_or_pattern: str = Field(min_length=1, max_length=1000)
     regex_base_dir: str | None = None
 
@@ -31,7 +32,7 @@ class LogSourceUpdate(BaseModel):
 
 class LogSourceOut(BaseModel):
     id: str
-    host_id: str
+    agent_id: str
     label: str
     mode: LogSourceMode
     path_or_pattern: str

@@ -1,0 +1,22 @@
+# Keep the build context lean — none of this is needed inside any image
+# (source gets COPY'd explicitly per-stage in the Dockerfile instead).
+# .git is intentionally NOT excluded: the gitinfo stage needs it to derive
+# a build version from the current commit (see Dockerfile).
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/*.egg-info/
+**/.pytest_cache/
+node_modules/
+frontend/dist/
+backend/app/static/
+backend/data/
+backend/*.db
+.env
+.env.*
+!.env.example
+.github/
+*.log
+.DS_Store
+.claude/

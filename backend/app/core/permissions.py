@@ -1,8 +1,8 @@
 """Permission code constants shared between seeding and route guards."""
 from __future__ import annotations
 
-HOST_READ = "host:read"
-HOST_WRITE = "host:write"
+AGENT_READ = "agent:read"
+AGENT_WRITE = "agent:write"
 LOG_SOURCE_READ = "log_source:read"
 LOG_SOURCE_WRITE = "log_source:write"
 LOG_VIEW = "log:view"
@@ -11,8 +11,8 @@ DASHBOARD_WRITE = "dashboard:write"
 USER_MANAGE = "user:manage"
 
 ALL_PERMISSIONS = [
-    HOST_READ,
-    HOST_WRITE,
+    AGENT_READ,
+    AGENT_WRITE,
     LOG_SOURCE_READ,
     LOG_SOURCE_WRITE,
     LOG_VIEW,

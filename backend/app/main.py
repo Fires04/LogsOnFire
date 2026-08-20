@@ -5,7 +5,6 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from cryptography.exceptions import InvalidTag
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,12 +12,13 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.routes import auth, dashboards, hosts, log_sources, ws_logs
+from app.api.routes import agent_install, agents, auth, dashboards, log_sources, saved_filters, ws_agent, ws_logs
 from app.bootstrap import bootstrap
 from app.config import get_settings
 from app.core.csrf import CsrfMiddleware
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
+from app.core.version import get_server_version
 
 logger = logging.getLogger("logsonfire")
 
@@ -41,18 +41,6 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    @app.exception_handler(InvalidTag)
-    async def invalid_tag_handler(_request: Request, _exc: InvalidTag) -> JSONResponse:
-        # Defense in depth: ssh/connect.py already turns this into a clean
-        # SshAuthError for the normal host-connection path. This handler is
-        # the safety net for any other place a stored secret gets decrypted,
-        # so a MASTER_KEY mismatch never surfaces as a bare 500.
-        logger.error("decryption failed with InvalidTag — MASTER_KEY likely does not match stored data")
-        return JSONResponse(
-            {"detail": "Could not decrypt stored credential — MASTER_KEY does not match. See README."},
-            status_code=500,
-        )
-
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
         # Explicit catch-all so an unhandled exception always ends up with a
@@ -69,15 +57,21 @@ def create_app() -> FastAPI:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
     app.include_router(auth.router)
-    app.include_router(hosts.router)
+    app.include_router(agents.router)
     app.include_router(log_sources.router)
     app.include_router(log_sources.global_router)
     app.include_router(dashboards.router)
+    app.include_router(saved_filters.router)
     app.include_router(ws_logs.router)
+    app.include_router(ws_agent.router)
+    app.include_router(agent_install.router)
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"status": "ok"}
+        # Unauthenticated on purpose — the login screen shows the version
+        # before any session exists, same reasoning as /api/health itself
+        # needing to work pre-auth.
+        return {"status": "ok", "version": get_server_version()}
 
     if STATIC_DIR.is_dir():
         assets_dir = STATIC_DIR / "assets"

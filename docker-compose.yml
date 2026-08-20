@@ -12,9 +12,11 @@ services:
       ENV: ${ENV:-production}
       DB_PATH: /data/logsonfire.db
       # Required — generate with: openssl rand -base64 32
-      # Losing this key permanently locks you out of every stored SSH
-      # credential (host passwords/private keys). See README.
-      MASTER_KEY: "${MASTER_KEY:?set MASTER_KEY in .env, e.g. output of: openssl rand -base64 32}"
+      # HMAC pepper for hashing agent bearer tokens (never stores them
+      # reversibly). Losing/rotating this invalidates every agent's stored
+      # token hash — reissue tokens and reconfigure each agent's config, but
+      # no log data or configuration is lost. See README.
+      AGENT_TOKEN_PEPPER: "${AGENT_TOKEN_PEPPER:?set AGENT_TOKEN_PEPPER in .env, e.g. output of: openssl rand -base64 32}"
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in .env, e.g. output of: openssl rand -base64 48}"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       # If unset, a random password is generated and printed once to the

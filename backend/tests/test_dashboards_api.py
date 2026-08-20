@@ -3,18 +3,18 @@ from __future__ import annotations
 from httpx import AsyncClient
 
 
-async def _make_host_and_log_source(client: AsyncClient) -> str:
-    host = await client.post("/api/hosts", json={"name": "local", "connection_type": "local"})
-    host_id = host.json()["id"]
+async def _make_agent_and_log_source(client: AsyncClient) -> str:
+    agent = await client.post("/api/agents", json={"name": "agent"})
+    agent_id = agent.json()["agent"]["id"]
     ls = await client.post(
-        f"/api/hosts/{host_id}/log-sources",
+        f"/api/agents/{agent_id}/log-sources",
         json={"label": "x", "mode": "exact_path", "path_or_pattern": "/tmp/does-not-need-to-exist.log"},
     )
     return ls.json()["id"]
 
 
 async def test_create_and_list_dashboard(auth_client: AsyncClient):
-    log_source_id = await _make_host_and_log_source(auth_client)
+    log_source_id = await _make_agent_and_log_source(auth_client)
 
     resp = await auth_client.post(
         "/api/dashboards",
@@ -36,7 +36,7 @@ async def test_create_and_list_dashboard(auth_client: AsyncClient):
 
 
 async def test_get_dashboard(auth_client: AsyncClient):
-    log_source_id = await _make_host_and_log_source(auth_client)
+    log_source_id = await _make_agent_and_log_source(auth_client)
     create = await auth_client.post("/api/dashboards", json={"name": "d1", "panels": []})
     dashboard_id = create.json()["id"]
 
@@ -44,11 +44,11 @@ async def test_get_dashboard(auth_client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["name"] == "d1"
     assert resp.json()["panels"] == []
-    _ = log_source_id  # unused here, just ensuring host/log-source creation doesn't interfere
+    _ = log_source_id  # unused here, just ensuring agent/log-source creation doesn't interfere
 
 
 async def test_update_dashboard_replaces_panels(auth_client: AsyncClient):
-    log_source_id = await _make_host_and_log_source(auth_client)
+    log_source_id = await _make_agent_and_log_source(auth_client)
     create = await auth_client.post(
         "/api/dashboards",
         json={"name": "d1", "panels": [{"log_source_id": log_source_id}]},

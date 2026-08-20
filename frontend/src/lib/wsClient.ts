@@ -5,8 +5,9 @@
  * `logWsClient` singleton below) so a standalone log view uses exactly one
  * WebSocket connection, and a dashboard with N panels — possibly across
  * several hosts — still uses exactly one, with N `subscribe` messages
- * multiplexed over it. Connection/process-level de-duplication on the
- * server (ssh/pool.py, tailing/manager.py) is what keeps the *backend*
+ * multiplexed over it. Session de-duplication on the server
+ * (tailing/manager.py, fed by pushed lines from each agent's own
+ * connection — see app/agents/registry.py) is what keeps the *backend*
  * resource usage minimal regardless of this client-side topology.
  *
  * Subscriptions are identified by a stable client-side id that outlives any
@@ -15,6 +16,8 @@
  * everything (including re-applying any active grep filter) — callers never
  * see the underlying server subscription id change.
  */
+
+import { getCookie } from './api'
 
 export interface FilteredLine {
   line_no: number | null
@@ -132,7 +135,17 @@ class LogWsClient {
 
   private async handleReauthRequired() {
     try {
-      await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      // Same CSRF requirement as lib/api.ts's tryRefresh() — this was
+      // silently 403ing before (no X-CSRF-Token), so this "proactive
+      // refresh before the access token actually expires" path never
+      // worked; the WS just always fell through to closing and
+      // reconnecting on a now-expired cookie instead.
+      const csrf = getCookie('csrf_token')
+      await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: csrf ? { 'X-CSRF-Token': csrf } : undefined,
+      })
     } catch {
       // The socket is about to be closed by the server regardless; the
       // normal reconnect/backoff path below will retry with whatever

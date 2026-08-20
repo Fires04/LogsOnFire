@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Button, Stack, Text } from '@mantine/core'
 import { api, ApiError } from '../lib/api'
 import LogPanel from './LogPanel'
 import type { LogSource, ResolveResponse } from '../types/models'
@@ -12,9 +13,9 @@ interface Props {
 /**
  * Resolves a log source (handling exact_path / glob / regex / journal —
  * including the "pattern matches multiple files, pick one" case) and then
- * renders a live LogPanel for it. Shared by the inline viewer (opened right
- * on HostDetailPage) and the standalone /view/log/:id route ("open in new
- * window"), so the two never drift apart.
+ * renders a live LogPanel for it. Shared by the inline viewer (opened in a
+ * Drawer on AgentDetailPage) and the standalone /view/log/:id route ("open
+ * in new window"), so the two never drift apart.
  */
 export default function LogSourceViewer({ logSourceId, title }: Props) {
   const [logSource, setLogSource] = useState<LogSource | null>(null)
@@ -43,7 +44,7 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
           return
         }
 
-        const result = await api.post<ResolveResponse>(`/api/hosts/${ls.host_id}/log-sources/${ls.id}/resolve`)
+        const result = await api.post<ResolveResponse>(`/api/agents/${ls.agent_id}/log-sources/${ls.id}/resolve`)
         if (cancelled) return
         if (result.warning) setWarning(result.warning)
         if (result.error) {
@@ -67,29 +68,33 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     }
   }, [logSourceId])
 
-  if (loading) return <p className="muted">Loading…</p>
-  if (error) return <p className="error">{error}</p>
-  if (!logSource) return <p className="error">Log source not found.</p>
+  if (loading) return <Text c="dimmed">Loading…</Text>
+  if (error) return <Text c="red">{error}</Text>
+  if (!logSource) return <Text c="red">Log source not found.</Text>
 
   if (candidates) {
     return (
-      <div className="log-source-viewer-candidates">
-        <p className="muted">The pattern matches multiple files — pick one to watch:</p>
-        <ul className="preview-list">
-          {candidates.map((path) => (
-            <li key={path}>
-              <button onClick={() => setResolvedPath(path)}>{path}</button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <Stack gap="xs">
+        <Text c="dimmed" size="sm">
+          The pattern matches multiple files — pick one to watch:
+        </Text>
+        {candidates.map((path) => (
+          <Button key={path} variant="default" justify="flex-start" onClick={() => setResolvedPath(path)}>
+            {path}
+          </Button>
+        ))}
+      </Stack>
     )
   }
 
   return (
-    <div className="log-source-viewer">
-      {warning && <p className="warning log-source-viewer-warning">⚠ {warning}</p>}
+    <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
+      {warning && (
+        <Text c="yellow" size="sm">
+          ⚠ {warning}
+        </Text>
+      )}
       <LogPanel logSourceId={logSourceId} resolvedPath={resolvedPath} title={title ?? logSource.label} />
-    </div>
+    </Stack>
   )
 }

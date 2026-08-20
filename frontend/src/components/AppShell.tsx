@@ -1,31 +1,94 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import {
+  ActionIcon,
+  AppShell as MantineAppShell,
+  Badge,
+  Group,
+  NavLink,
+  Text,
+  useMantineColorScheme,
+} from '@mantine/core'
+import { IconLogout, IconMoon, IconSun } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
+import { api } from '../lib/api'
+import { useServerVersion } from '../lib/serverVersion'
+import type { Agent } from '../types/models'
+
+const AGENT_SUMMARY_POLL_MS = 15000
 
 export default function AppShell() {
   const { user, logout } = useAuth()
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme()
+  const [agentSummary, setAgentSummary] = useState<{ online: number; total: number } | null>(null)
+  const serverVersion = useServerVersion()
+  const location = useLocation()
+
+  useEffect(() => {
+    let cancelled = false
+    async function poll() {
+      try {
+        const agents = await api.get<Agent[]>('/api/agents')
+        if (!cancelled) setAgentSummary({ online: agents.filter((a) => a.online).length, total: agents.length })
+      } catch {
+        // ambient status widget — a failed poll just leaves the last known value
+      }
+    }
+    poll()
+    const id = setInterval(poll, AGENT_SUMMARY_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
 
   return (
-    <div className="app-shell">
-      <nav className="app-nav">
-        <span className="brand">
-          <img src="/logo.png" alt="" className="brand-logo" />
-          Logs On Fire
-        </span>
-        <NavLink to="/hosts" className={({ isActive }) => (isActive ? 'active' : '')}>
-          Hosts
-        </NavLink>
-        <NavLink to="/dashboards" className={({ isActive }) => (isActive ? 'active' : '')}>
-          Dashboards
-        </NavLink>
-        <span className="nav-spacer" />
-        <span className="muted">{user?.email}</span>
-        <button className="secondary" onClick={() => logout()}>
-          Log out
-        </button>
-      </nav>
-      <main>
+    <MantineAppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: 'sm' }} padding="md">
+      <MantineAppShell.Header>
+        <Group h="100%" px="md" justify="space-between">
+          <Group gap="xs">
+            <img src="/logo.png" alt="" width={26} height={26} style={{ display: 'block' }} />
+            <Text fw={700}>Logs On Fire</Text>
+          </Group>
+          <Group gap="sm">
+            {agentSummary && (
+              <Badge
+                variant="light"
+                color={agentSummary.online === agentSummary.total && agentSummary.total > 0 ? 'teal' : 'gray'}
+              >
+                {agentSummary.online}/{agentSummary.total} agents online
+              </Badge>
+            )}
+            <ActionIcon variant="subtle" onClick={() => toggleColorScheme()} aria-label="Toggle color scheme">
+              {colorScheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+            </ActionIcon>
+            <Text size="sm" c="dimmed">
+              {user?.email}
+            </Text>
+            <ActionIcon variant="subtle" onClick={() => logout()} aria-label="Log out">
+              <IconLogout size={18} />
+            </ActionIcon>
+          </Group>
+        </Group>
+      </MantineAppShell.Header>
+
+      <MantineAppShell.Navbar p="sm">
+        <MantineAppShell.Section grow>
+          <NavLink component={Link} to="/agents" label="Agents" active={location.pathname.startsWith('/agents')} />
+          <NavLink component={Link} to="/dashboards" label="Dashboards" active={location.pathname.startsWith('/dashboards')} />
+        </MantineAppShell.Section>
+        {serverVersion && (
+          <MantineAppShell.Section>
+            <Text c="dimmed" size="xs" ta="center" py="xs">
+              v{serverVersion}
+            </Text>
+          </MantineAppShell.Section>
+        )}
+      </MantineAppShell.Navbar>
+
+      <MantineAppShell.Main>
         <Outlet />
-      </main>
-    </div>
+      </MantineAppShell.Main>
+    </MantineAppShell>
   )
 }

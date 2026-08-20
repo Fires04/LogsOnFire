@@ -1,14 +1,12 @@
 """De-duplicates tailing: if two WebSocket subscriptions (from one browser
 tab's dashboard, or from two different users/tabs entirely) want the same
-file on the same host, they share a single TailSession — one remote `tail
--F` process, one entry in the SSH connection pool — instead of each
-starting their own.
+path on the same agent, they share a single TailSession — one start_tail
+sent to that agent — instead of each triggering its own.
 """
 from __future__ import annotations
 
 import asyncio
 
-from app.models.host import Host, HostCredential
 from app.tailing.broker import TailEvent
 from app.tailing.session import TailSession
 
@@ -19,8 +17,8 @@ class TailSessionManager:
         self._key_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
-    def _key(host_id: str, path: str) -> str:
-        return f"{host_id}:{path}"
+    def _key(agent_id: str, path: str) -> str:
+        return f"{agent_id}:{path}"
 
     def _lock_for(self, key: str) -> asyncio.Lock:
         lock = self._key_locks.get(key)
@@ -30,18 +28,18 @@ class TailSessionManager:
         return lock
 
     async def subscribe(
-        self, host: Host, credential: HostCredential | None, path: str
+        self, agent_id: str, path: str
     ) -> tuple[TailSession, "asyncio.Queue[TailEvent]", list[str]]:
         """Returns (session, queue, backfill_snapshot). Raises whatever
-        session.start() raises if a brand-new session fails to connect.
-        Caller MUST call unsubscribe(session, queue) exactly once when done,
-        even if it stops consuming due to an error.
+        session.start() raises if a brand-new session fails to start (e.g.
+        agent offline). Caller MUST call unsubscribe(session, queue) exactly
+        once when done, even if it stops consuming due to an error.
         """
-        key = self._key(host.id, path)
+        key = self._key(agent_id, path)
         async with self._lock_for(key):
             session = self._sessions.get(key)
             if session is None or session.status in ("closed", "error"):
-                session = TailSession(key, host, credential, path)
+                session = TailSession(key, agent_id, path)
                 self._sessions[key] = session
                 try:
                     await session.start()
@@ -66,6 +64,17 @@ class TailSessionManager:
                 await session.stop()
                 if self._sessions.get(session.key) is session:
                     del self._sessions[session.key]
+
+    def get_session(self, agent_id: str, path: str) -> TailSession | None:
+        """Looked up by ws_agent.py's message dispatcher to route an
+        inbound tail_line/tail_error/tail_closed to the right session."""
+        return self._sessions.get(self._key(agent_id, path))
+
+    def sessions_for_agent(self, agent_id: str) -> list[TailSession]:
+        """Used by agents/service.py when an agent disconnects, to mark
+        every session it owned as closed."""
+        prefix = f"{agent_id}:"
+        return [s for k, s in self._sessions.items() if k.startswith(prefix)]
 
 
 _manager: TailSessionManager | None = None

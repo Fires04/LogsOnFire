@@ -41,14 +41,19 @@ def reset_secret_cache() -> None:
 TokenType = Literal["access", "refresh"]
 
 
-def create_token(subject: str, token_type: TokenType, extra: dict[str, Any] | None = None) -> str:
+def create_token(
+    subject: str, token_type: TokenType, extra: dict[str, Any] | None = None, ttl_days: int | None = None
+) -> str:
+    """ttl_days overrides the default refresh-token lifetime (ignored for
+    access tokens, which stay short-lived regardless — see "remember me" in
+    api/routes/auth.py, which is what actually needs a longer refresh
+    token, not a longer access token)."""
     settings = get_settings()
     now = datetime.now(timezone.utc)
-    ttl = (
-        timedelta(minutes=settings.access_token_ttl_minutes)
-        if token_type == "access"
-        else timedelta(days=settings.refresh_token_ttl_days)
-    )
+    if token_type == "access":
+        ttl = timedelta(minutes=settings.access_token_ttl_minutes)
+    else:
+        ttl = timedelta(days=ttl_days if ttl_days is not None else settings.refresh_token_ttl_days)
     payload: dict[str, Any] = {
         "sub": subject,
         "type": token_type,
