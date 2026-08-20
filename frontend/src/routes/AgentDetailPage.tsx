@@ -115,9 +115,26 @@ export default function AgentDetailPage() {
               )}
             </Group>
           </div>
-          {agent.agent_version && <Badge variant="light">{agent.agent_version}</Badge>}
+          {agent.agent_version && (
+            <Badge
+              variant="light"
+              color={agent.server_version_mismatch ? 'orange' : undefined}
+              rightSection={agent.server_version_mismatch ? <IconAlertTriangle size={11} /> : undefined}
+            >
+              {agent.agent_version}
+            </Badge>
+          )}
         </Group>
       </Card>
+
+      {agent.server_version_mismatch && (
+        <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light">
+          This agent's version ({agent.agent_version}) doesn't match the server's — run{' '}
+          <code>pip install --upgrade --force-reinstall</code> for <code>logsonfire-agent</code> and{' '}
+          <code>logsonfire-agentcore</code> on this host, then{' '}
+          <code>systemctl restart logsonfire-agent</code>.
+        </Alert>
+      )}
 
       {!agent.online && (
         <Alert icon={<IconAlertTriangle size={16} />} color="yellow" variant="light">

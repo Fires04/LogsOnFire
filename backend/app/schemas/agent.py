@@ -20,6 +20,15 @@ class AgentOut(BaseModel):
     last_seen_at: datetime | None
     last_heartbeat_rtt_ms: int | None
     agent_version: str | None
+    # True when agent_version is known and differs from the server's own
+    # version — a real, previously-hit gotcha (see CLAUDE.md): an agent
+    # doesn't pick up new code on its own, and `pip install --upgrade`
+    # silently no-ops if the wheel's version string didn't change, so this
+    # is worth surfacing rather than leaving it to be discovered as
+    # "some feature mysteriously doesn't work on this one host". False
+    # (not True) when agent_version is None — an agent that's never
+    # connected is "unknown", not "outdated".
+    server_version_mismatch: bool
     token_prefix: str
 
     model_config = {"from_attributes": True}
