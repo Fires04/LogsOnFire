@@ -6,40 +6,76 @@ keep facts in the file that matches their audience, don't duplicate.
 
 ## What this is
 
-Logs On Fire: a self-hosted single-container web app for live-tailing local
-and remote (SSH) logs from a browser — hosts, per-host log sources
-(exact path / glob / regex / systemd journal), live tail over WebSocket with
-a real-`grep`-based filter bar, multi-log dashboards, encrypted-at-rest SSH
-credentials. See `README.md` for the user-facing feature list and deployment
-instructions — don't re-derive that here.
+Logs On Fire: a self-hosted log-tailing dashboard. A lightweight **agent**
+process (`agent/`) runs on each monitored host, reads logs *locally*
+(exact path / glob / regex / systemd journal — no remote credentials, no
+inbound SSH) and pushes them to a central **server** (`backend/` +
+`frontend/`) over a persistent WebSocket it opens itself. The server
+provides live tail over WebSocket with a real-`grep`-based filter bar,
+short in-memory history, and multi-log dashboards — see `README.md` for
+the user-facing feature list and deployment instructions.
+
+**Architecture note (2026-08-19 rewrite)**: this used to be a pull model —
+the server SSH'd out to each host and ran `tail -F`/`journalctl -f`
+remotely. That was replaced outright (hard cutover, no dual-mode period)
+with the push model described above, because SSH credentials needing
+just-enough remote read permissions, and the server needing inbound network
+reachability to every host, were both recurring real operational problems.
+Existing hosts/log sources from the old model do not carry over — every
+host must be re-enrolled as an agent (`POST /api/agents`, one token per
+host) and have its log sources reconfigured.
 
 ## Layout
 
 ```
 backend/app/
-  providers/    LogProvider ABC (base.py) + LocalFileProvider, SshFileProvider,
-                journal.py (journalctl support, shared by both providers)
-  ssh/          connection pooling (pool.py), TOFU host-key handling (connect.py)
-  tailing/      TailSession (ring buffer), manager.py (dedup), broker.py
-                (pub/sub fan-out), grep.py (sandboxed real-grep filter)
-  security/     crypto.py (AES-256-GCM for host creds), passwords.py (argon2id),
-                jwt.py, deps.py (cookie/CSRF wiring)
-  api/routes/   REST + the one WebSocket endpoint (ws_logs.py)
+  agents/       Agent Manager: registry.py (one live WS per connected agent
+                + request/reply matching), heartbeat.py (ping/pong,
+                connection-timeout detection), service.py (enroll,
+                reissue-token, connect/disconnect lifecycle)
+  tailing/      TailSession (ring buffer, now fed by pushed lines rather
+                than a server-owned tail process), manager.py (dedup by
+                agent_id+path, refcounted by browser subscriber count),
+                broker.py (pub/sub fan-out), grep.py (sandboxed real-grep
+                filter)
+  security/     agent_tokens.py (HMAC-SHA256 hashed bearer tokens),
+                passwords.py (argon2id for dashboard users), jwt.py,
+                deps.py (cookie/CSRF wiring for the dashboard-user session)
+  api/routes/   REST + two WebSocket endpoints: ws_logs.py (browser-facing,
+                unchanged by the rewrite) and ws_agent.py (agent-facing,
+                new)
+agentcore/logsonfire_agentcore/
+                Local log-reading logic (LogProvider ABC, LocalFileProvider,
+                journal.py, glob/regex resolvers) — zero FastAPI/SQLAlchemy
+                dependency, since this runs inside the agent process on a
+                monitored host, not the server. This is where
+                `providers/local.py` used to live when the server read
+                files itself.
+agent/logsonfire_agent/
+                The standalone agent: wsclient.py (persistent reconnecting
+                connection to /ws/agent, mirrors frontend/src/lib/
+                wsClient.ts's backoff pattern), dispatch.py (resolve/browse/
+                start_tail/stop_tail handlers, calls into agentcore),
+                config.py (just server_url + token — log source
+                configuration stays centralized on the server). Packaged
+                separately (own pyproject.toml) so installing it on a
+                monitored host doesn't pull in the backend's web/DB stack.
 frontend/src/
   routes/       page-level components (one per route in App.tsx)
   components/   shared UI (LogPanel, FileExplorer, LogSourceViewer, ...)
-  lib/          wsClient.ts (multiplexed reconnecting WS client), api.ts, logHighlight.tsx
+  lib/          wsClient.ts (multiplexed reconnecting WS client, browser-
+                facing — unaffected by the push-model rewrite), api.ts,
+                logHighlight.tsx
 ```
 
-The one design rule worth preserving: `providers/base.py`'s `LogProvider`
-interface is deliberately small (`resolve_sources`, `read_tail`, `tail`,
+**The core design rule worth preserving** now lives one layer down from
+where it used to: `agentcore/logsonfire_agentcore/base.py`'s `LogProvider`
+ABC is deliberately small (`resolve_sources`, `read_tail`, `tail`,
 `list_directory`, `default_browse_path`) so a new log source type is a new
-module + a registry entry, not changes scattered through `api/`/`tailing/`.
-The `journal` mode was added this way after the fact with zero changes to
-`api/` or `tailing/` — if you're tempted to special-case a new source type
-in the WebSocket handler or the tailing layer, that's a sign to instead teach
-the *provider* to dispatch on the resolved path (see how both providers
-detect `journal://` paths via `journal_unit_from_path()`).
+module in `agentcore/` + a small dispatch addition in `agent/dispatch.py`,
+not changes scattered through the server's `api/`/`tailing/`. The server
+itself never touches a monitored host's filesystem directly anymore — it
+only ever asks the connected agent over `/ws/agent` and waits for a reply.
 
 ## Non-obvious gotchas (found by direct testing — don't "fix" these back)
 
@@ -50,37 +86,35 @@ detect `journal://` paths via `journal_unit_from_path()`).
 
 - **journalctl needs `stdbuf -oL`.** `journalctl --follow` fully
   block-buffers its own stdout whenever it isn't a tty (always true for a
-  subprocess pipe or an SSH exec channel) — without forcing line buffering,
-  freshly-logged lines sit unflushed indefinitely instead of arriving live.
-  Both `providers/local.py` and `providers/ssh.py` wrap the follow command in
-  `stdbuf -oL` (falling back to the plain command if the target lacks
-  `stdbuf`). Regression test:
-  `backend/tests/test_journal.py::test_tail_whole_journal_delivers_a_new_line_promptly`
+  subprocess pipe) — without forcing line buffering, freshly-logged lines
+  sit unflushed indefinitely instead of arriving live. This now only
+  applies inside `agentcore/logsonfire_agentcore/local.py`'s local
+  `journalctl -f` invocation (the agent's own host), not a remote one —
+  there's no more SSH-side copy of this gotcha to keep in sync.
+  Regression test: `agentcore/tests/test_journal.py::test_tail_whole_journal_delivers_a_new_line_promptly`
   — it injects a marker via `logger` and requires prompt delivery; don't
   rely on ambient journal traffic to "prove" this works, that's how the bug
   passed unnoticed the first time.
 
-- **SSH commands are one shell string, not argv.** The SSH "exec" channel
-  only ever transports a single command string that the remote shell
-  interprets (`$SHELL -c "..."`) — unlike a local `subprocess`, there's no
-  argv-array form. `providers/ssh.py` always builds that string with
-  `shlex.quote()` on every interpolated value. Never f-string a raw path or
-  unit name into an SSH command.
-
-- **The browse endpoint must compute `parent` even when listing fails.**
-  `api/routes/hosts.py`'s `/browse` had a real bug where a permission-denied
-  directory came back with `parent: null`, disabling the file picker's "Up"
-  button exactly when it was needed to back out. `parent` is derived from
-  the *requested path*, independent of whether `list_directory()` succeeded
-  — keep that ordering if you touch this endpoint.
+- **The browse handler must compute `parent` even when listing fails.**
+  This used to be a real bug in the server's own `/browse` endpoint; now
+  it's the *agent's* `dispatch.py::_handle_browse` that must compute
+  `parent` unconditionally from the requested path, independent of whether
+  `list_directory()` succeeded — a permission-denied directory coming back
+  with `parent: null` disables the file picker's "Up" button exactly when
+  it's needed to back out. Regression test:
+  `backend/tests/test_browse.py::test_browse_endpoint_reports_parent_even_when_listing_fails`
+  (via a fake agent — see below).
 
 - **journalctl's own access is silently restricted for non-privileged
-  users.** A non-root user not in `systemd-journal`/`adm` only sees a
-  fraction of the journal (mostly its own session activity) — no error, just
-  quietly less data. `providers/journal.py`'s `journal_access_warning()` +
-  the `warning` field on `ResolveResponse` surface this proactively; don't
-  remove it thinking it's dead code just because journalctl itself doesn't
-  complain.
+  users.** A non-root agent process not in `systemd-journal`/`adm` only
+  sees a fraction of the journal (mostly its own session activity) — no
+  error, just quietly less data. `agentcore/logsonfire_agentcore/journal.py`'s
+  `journal_access_warning()` + the `warning` field on `ResolveResponse`
+  surface this proactively; don't remove it thinking it's dead code just
+  because journalctl itself doesn't complain. The install script
+  (`agent/install.sh`) adds the agent's system user to `systemd-journal`/
+  `adm` for exactly this reason.
 
 - **The WebSocket subscribe handler needs a branch per "deterministic"
   mode.** `exact_path` and `journal` log sources always resolve to
@@ -88,27 +122,66 @@ detect `journal://` paths via `journal_unit_from_path()`).
   `regex` do not. `ws_logs.py`'s `handle_subscribe` has to special-case both
   — a past regression here was journal-mode subscribes rejected with
   "resolved_path is required for glob/regex log sources" because only
-  `exact_path` had the special case.
+  `exact_path` had the special case. Unaffected by the push-model rewrite —
+  this is entirely about the browser-facing protocol.
 
 - **Grep really is real `grep`.** `tailing/grep.py` whitelists flags, parses
   via `shlex.split`, and always runs the actual `grep` binary via
   `create_subprocess_exec` (argv list, no shell) — never reimplement this in
   Python; the point is real grep semantics.
 
+- **`AgentConnectionRegistry.request()` always has a timeout.** Every
+  resolve/browse/start_tail call the server makes to an agent
+  (`app/agents/registry.py`) must resolve to either a reply or a clean
+  `AgentOfflineError`/`AgentTimeoutError` within
+  `settings.agent_request_timeout_seconds` — never let a route handler
+  `await` an agent reply with no timeout; an agent that silently stops
+  responding (not fully disconnected, just stuck) must not hang the
+  request forever.
+
+- **Agent disconnect must sweep every session it owned.**
+  `agents/service.py::mark_disconnected` walks
+  `get_tail_manager().sessions_for_agent(agent_id)` and publishes
+  `TailClosed("agent_disconnected")` on each — otherwise a browser tab
+  watching a log on a host that just went offline would sit there showing
+  a stale "live" status forever instead of a clear closed/disconnected
+  state.
+
 ## Testing
 
+Three independent test suites, one per package (they don't share a venv —
+`agentcore`/`agent` deliberately have no dependency on `backend`):
+
 ```bash
-cd backend && source .venv/bin/activate  # or: uv venv / pip install -e ".[dev]"
-python -m pytest
+cd backend && source .venv/bin/activate && python -m pytest
+cd agentcore && source .venv/bin/activate && python -m pytest
 ```
 
-Several tests (`test_journal.py`, parts of `test_browse.py`) exercise the
-real `journalctl`/filesystem-permission behavior of the host running the
-tests rather than mocking it — they skip cleanly (`shutil.which(...)`) if
-the binary isn't available, and a couple skip under a root shell where
+`backend/tests/fake_agent.py` provides an in-process fake agent
+(`attach_fake_agent(agent_id, handler)`) used by most REST/tailing-layer
+tests to exercise the resolve/browse/start_tail request-reply flow without
+a real network WebSocket — safe to call directly from an async test since
+it runs on the same event loop as the app under test (httpx's
+`ASGITransport`). `backend/tests/test_ws_agent.py` and
+`test_ws_logs.py` instead drive a real WebSocket via Starlette's
+*synchronous* `TestClient` (httpx's async client has no WS support) — that
+runs the app in a background thread with its own event loop, so anything
+that touches `asyncio.Queue`/`Future` objects owned by that loop (like
+`TailSession.receive_line`) must be scheduled *from a callback already
+running on that loop* (e.g. `asyncio.get_running_loop().call_later(...)`
+inside a fake-agent message handler), never called directly from the
+test's own thread — that's an unsafe cross-thread asyncio access, not just
+a style preference; it caused real intermittent failures during
+development (see `test_ws_logs.py`'s `handler()` closures for the pattern).
+
+Several tests (`agentcore/tests/test_journal.py`, parts of
+`agentcore/tests/test_local_provider.py`) exercise the real
+`journalctl`/filesystem-permission behavior of the host running the tests
+rather than mocking it — they skip cleanly (`shutil.which(...)`) if the
+binary isn't available, and a couple skip under a root shell where
 permission bits can't produce a "denied" case. That's intentional: this
 project has been repeatedly bitten by bugs that only reproduce against real
-`grep`/`journalctl`/SSH behavior, not a mock of it.
+`grep`/`journalctl` behavior, not a mock of it.
 
 ## Deploying / redeploying
 
@@ -119,17 +192,31 @@ loss if changed carelessly on a host with real data already stored:
   an empty DB inside the same volume; the old file isn't deleted, just no
   longer used. Migrate explicitly (copy the old file to the new path/volume)
   before/after changing it, don't just redeploy and assume continuity.
-- **`MASTER_KEY`** — losing or rotating it makes every stored SSH
-  credential permanently undecryptable (by design, see README). Never
-  regenerate it as a "fix" for anything; if it's genuinely lost, every host
-  needs its password/key re-entered.
+- **`AGENT_TOKEN_PEPPER`** — losing or rotating it invalidates every
+  agent's stored token hash (they'll fail to authenticate). Unlike the old
+  `MASTER_KEY`, this is **not** catastrophic: reissue each agent's token
+  (`POST /api/agents/{id}/reissue-token`) and update its config — no log
+  data or log-source configuration is lost, since tokens are hashed
+  one-way and never used to decrypt anything.
+
+Every monitored host additionally needs the agent installed
+(`agent/install.sh`, or `pip install` the `logsonfire-agent` +
+`logsonfire-agentcore` wheels + the provided systemd unit) and enrolled via
+the dashboard's Agents page before it can be configured with log sources.
 
 ## Security model (short version — see README for the user-facing warning)
 
-Login passwords: argon2id, one-way. Host SSH passwords/private keys:
-AES-256-GCM, `MASTER_KEY` only ever in env (never in DB), decrypt-on-demand
-when a tail session actually connects. `HostOut`/API responses only ever
-expose `has_password`/`has_private_key` booleans — the API must never grow a
-code path that serializes the decrypted secret or the raw encrypted bytes
-back to a client. SSH host keys are trust-on-first-use, pinned per host in
-`known_host_key`.
+Login passwords: argon2id, one-way (`security/passwords.py`). Agent bearer
+tokens: HMAC-SHA256 hashed at rest with `AGENT_TOKEN_PEPPER`
+(`security/agent_tokens.py`) — **not** reversibly encrypted, since a token
+is a bearer secret the server never needs to present to a third party
+(unlike the old SSH credentials, which had to be decrypted and handed to
+`asyncssh.connect()`). A token is shown in plaintext exactly once, at
+enrollment or reissue, and never stored or logged in plaintext anywhere.
+`AgentOut`/API responses only ever expose `token_prefix` (not secret, just
+enough to tell tokens apart in the UI) — the API must never grow a code
+path that serializes a token hash or a way to recover the plaintext back to
+a client. There is no SSH layer, no remote credentials, and no host-key
+trust-on-first-use anymore — the agent only ever reads its own host's
+filesystem/journal locally, and only initiates the one outbound connection
+to the server.

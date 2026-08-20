@@ -44,10 +44,9 @@ from sqlalchemy.orm import selectinload
 from app.core.audit import record as audit_record
 from app.core.permissions import LOG_VIEW
 from app.database import get_db
-from app.models.host import Host
 from app.models.log_source import LogSource
 from app.models.user import User
-from app.providers.journal import make_journal_path
+from app.core.journal_paths import make_journal_path
 from app.security.deps import ACCESS_COOKIE, has_permission
 from app.security.jwt import decode_token
 from app.tailing.broker import TailClosed, TailError, TailLine
@@ -90,9 +89,7 @@ async def _authenticate(websocket: WebSocket, db: AsyncSession) -> tuple[User | 
 
 async def _load_log_source(db: AsyncSession, log_source_id: str) -> LogSource | None:
     result = await db.execute(
-        select(LogSource)
-        .options(selectinload(LogSource.host).selectinload(Host.credential))
-        .where(LogSource.id == log_source_id)
+        select(LogSource).options(selectinload(LogSource.agent)).where(LogSource.id == log_source_id)
     )
     return result.scalar_one_or_none()
 
@@ -186,7 +183,7 @@ async def ws_logs(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> N
             await websocket.send_json({"type": "error", "req_id": req_id, "message": "log source not found"})
             return
 
-        host = log_source.host
+        agent = log_source.agent
         if log_source.mode == "exact_path":
             target_path = client_resolved_path or log_source.path_or_pattern
         elif log_source.mode == "journal":
@@ -202,7 +199,7 @@ async def ws_logs(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> N
             return
 
         try:
-            session, queue, backfill = await manager.subscribe(host, host.credential, target_path)
+            session, queue, backfill = await manager.subscribe(agent.id, target_path)
         except Exception as exc:  # noqa: BLE001 - surfaced to the client, not a server crash
             await websocket.send_json({"type": "error", "req_id": req_id, "message": str(exc)})
             return
@@ -215,8 +212,8 @@ async def ws_logs(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> N
                 db,
                 user_id=user.id,
                 event_type="tail_started",
-                target_type="host",
-                target_id=host.id,
+                target_type="agent",
+                target_id=agent.id,
                 detail={"path": target_path, "log_source_id": log_source_id},
             )
 

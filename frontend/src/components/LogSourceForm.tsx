@@ -1,17 +1,25 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Button, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
 import { api } from '../lib/api'
 import FileExplorer from './FileExplorer'
 import Modal from './Modal'
 import type { LogSourceCreateInput, LogSourceMode, ResolveResponse } from '../types/models'
 
 interface Props {
-  hostId: string
+  agentId: string
   onCreate: (input: LogSourceCreateInput) => Promise<void>
 }
 
 const DEBOUNCE_MS = 400
 
-export default function LogSourceForm({ hostId, onCreate }: Props) {
+const MODE_OPTIONS: { value: LogSourceMode; label: string }[] = [
+  { value: 'exact_path', label: 'Exact path' },
+  { value: 'glob', label: 'Glob pattern (*, ?, **)' },
+  { value: 'regex', label: 'Regex over a directory' },
+  { value: 'journal', label: 'systemd journal (journalctl)' },
+]
+
+export default function LogSourceForm({ agentId, onCreate }: Props) {
   const [label, setLabel] = useState('')
   const [mode, setMode] = useState<LogSourceMode>('glob')
   const [pathOrPattern, setPathOrPattern] = useState('')
@@ -32,7 +40,7 @@ export default function LogSourceForm({ hostId, onCreate }: Props) {
     debounceRef.current = setTimeout(async () => {
       setPreviewing(true)
       try {
-        const result = await api.post<ResolveResponse>(`/api/hosts/${hostId}/log-sources/resolve-preview`, {
+        const result = await api.post<ResolveResponse>(`/api/agents/${agentId}/log-sources/resolve-preview`, {
           label: label || 'preview',
           mode,
           path_or_pattern: pathOrPattern,
@@ -49,7 +57,7 @@ export default function LogSourceForm({ hostId, onCreate }: Props) {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostId, mode, pathOrPattern, regexBaseDir])
+  }, [agentId, mode, pathOrPattern, regexBaseDir])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -74,51 +82,54 @@ export default function LogSourceForm({ hostId, onCreate }: Props) {
   }
 
   return (
-    <form className="card" onSubmit={onSubmit}>
-      <h2>Add log source</h2>
-      <label>
-        Label
-        <input value={label} onChange={(e) => setLabel(e.target.value)} required placeholder="e.g. nginx access log" />
-      </label>
-      <label>
-        Mode
-        <select value={mode} onChange={(e) => setMode(e.target.value as LogSourceMode)}>
-          <option value="exact_path">Exact path</option>
-          <option value="glob">Glob pattern (*, ?, **)</option>
-          <option value="regex">Regex over a directory</option>
-          <option value="journal">systemd journal (journalctl)</option>
-        </select>
-      </label>
+    <Paper component="form" onSubmit={onSubmit} withBorder p="md" radius="md">
+      <Stack gap="sm">
+        <Title order={4}>Add log source</Title>
+        <TextInput
+          label="Label"
+          value={label}
+          onChange={(e) => setLabel(e.currentTarget.value)}
+          required
+          placeholder="e.g. nginx access log"
+        />
+        <Select
+          label="Mode"
+          data={MODE_OPTIONS}
+          value={mode}
+          onChange={(v) => v && setMode(v as LogSourceMode)}
+          allowDeselect={false}
+        />
 
-      {mode === 'regex' && (
-        <label>
-          Base directory to walk
-          <div className="input-with-button">
-            <input
+        {mode === 'regex' && (
+          <Group align="flex-end" gap="xs">
+            <TextInput
+              label="Base directory to walk"
               value={regexBaseDir}
-              onChange={(e) => setRegexBaseDir(e.target.value)}
+              onChange={(e) => setRegexBaseDir(e.currentTarget.value)}
               placeholder="/var/www"
               required
+              style={{ flex: 1 }}
             />
-            <button type="button" className="secondary" onClick={() => setBrowsing('regexBaseDir')}>
+            <Button variant="default" onClick={() => setBrowsing('regexBaseDir')}>
               Browse…
-            </button>
-          </div>
-        </label>
-      )}
+            </Button>
+          </Group>
+        )}
 
-      <label>
-        {mode === 'exact_path'
-          ? 'File path'
-          : mode === 'glob'
-            ? 'Glob pattern'
-            : mode === 'journal'
-              ? 'Unit name (or * for the whole journal)'
-              : 'Regex (applied to the path relative to the base directory)'}
-        <div className="input-with-button">
-          <input
+        <Group align="flex-end" gap="xs">
+          <TextInput
+            style={{ flex: 1 }}
+            label={
+              mode === 'exact_path'
+                ? 'File path'
+                : mode === 'glob'
+                  ? 'Glob pattern'
+                  : mode === 'journal'
+                    ? 'Unit name (or * for the whole journal)'
+                    : 'Regex (applied to the path relative to the base directory)'
+            }
             value={pathOrPattern}
-            onChange={(e) => setPathOrPattern(e.target.value)}
+            onChange={(e) => setPathOrPattern(e.currentTarget.value)}
             placeholder={
               mode === 'glob'
                 ? '/var/www/*/logs/*.log'
@@ -131,45 +142,45 @@ export default function LogSourceForm({ hostId, onCreate }: Props) {
             required
           />
           {mode !== 'regex' && mode !== 'journal' && (
-            <button type="button" className="secondary" onClick={() => setBrowsing('path')}>
+            <Button variant="default" onClick={() => setBrowsing('path')}>
               Browse…
-            </button>
+            </Button>
           )}
-        </div>
-      </label>
+        </Group>
 
-      <div className="preview-box">
-        {previewing && <p className="muted">Searching for matches…</p>}
-        {!previewing && preview?.error && <p className="error">{preview.error}</p>}
-        {!previewing && preview?.warning && <p className="warning">⚠ {preview.warning}</p>}
-        {!previewing && preview && !preview.error && (
-          <>
-            <p className="muted">
-              {preview.files.length === 0
-                ? 'No matches yet.'
-                : `Found ${preview.files.length}${preview.truncated ? '+' : ''} file(s):`}
-            </p>
-            <ul className="preview-list">
-              {preview.files.slice(0, 8).map((f) => (
-                <li key={f.path}>
-                  <code>{f.path}</code>
-                  {typeof f.size === 'number' && <span className="muted"> ({f.size} B)</span>}
-                </li>
-              ))}
-            </ul>
-          </>
+        {(previewing || preview) && (
+          <Stack gap={2} pt="xs" style={{ borderTop: '1px dashed var(--mantine-color-default-border)' }}>
+            {previewing && <Text c="dimmed" size="sm">Searching for matches…</Text>}
+            {!previewing && preview?.error && <Text c="red" size="sm">{preview.error}</Text>}
+            {!previewing && preview?.warning && <Text c="yellow" size="sm">⚠ {preview.warning}</Text>}
+            {!previewing && preview && !preview.error && (
+              <>
+                <Text c="dimmed" size="sm">
+                  {preview.files.length === 0
+                    ? 'No matches yet.'
+                    : `Found ${preview.files.length}${preview.truncated ? '+' : ''} file(s):`}
+                </Text>
+                {preview.files.slice(0, 8).map((f) => (
+                  <Text key={f.path} component="code" fz="sm">
+                    {f.path}
+                    {typeof f.size === 'number' && <Text component="span" c="dimmed"> ({f.size} B)</Text>}
+                  </Text>
+                ))}
+              </>
+            )}
+          </Stack>
         )}
-      </div>
 
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy}>
-        {busy ? 'Adding…' : 'Add log source'}
-      </button>
+        {error && <Text c="red" size="sm">{error}</Text>}
+        <Button type="submit" loading={busy}>
+          Add log source
+        </Button>
+      </Stack>
 
       {browsing && (
         <Modal onClose={() => setBrowsing(null)} wide>
           <FileExplorer
-            hostId={hostId}
+            agentId={agentId}
             onClose={() => setBrowsing(null)}
             onSelectFile={(path) => {
               setPathOrPattern(path)
@@ -192,6 +203,6 @@ export default function LogSourceForm({ hostId, onCreate }: Props) {
           />
         </Modal>
       )}
-    </form>
+    </Paper>
   )
 }

@@ -1,7 +1,7 @@
 [project]
 name = "logsonfire"
 version = "0.1.0"
-description = "LogsOnFire - web app for viewing local and remote (SSH) logs, live"
+description = "LogsOnFire - web app for live-tailing logs pushed by agents installed on monitored hosts"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -14,12 +14,6 @@ dependencies = [
     "email-validator>=2.1",
     "passlib[argon2]>=1.7",
     "pyjwt>=2.8",
-    "asyncssh>=2.14",
-    # asyncssh needs this to decrypt modern (bcrypt-KDF) passphrase-encrypted
-    # OpenSSH private keys — the default `ssh-keygen` output format since
-    # OpenSSH 6.5. Without it, importing such a key raises KeyEncryptionError.
-    "bcrypt>=4.0",
-    "cryptography>=42",
     "slowapi>=0.1.9",
     "python-multipart>=0.0.9",
 ]

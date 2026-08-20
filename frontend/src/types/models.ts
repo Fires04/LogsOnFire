@@ -1,51 +1,32 @@
-export type ConnectionType = 'local' | 'ssh'
-export type AuthType = 'password' | 'private_key'
-
-export interface Host {
+export interface Agent {
   id: string
   name: string
-  connection_type: ConnectionType
-  hostname: string | null
-  port: number
-  ssh_username: string | null
-  auth_type: AuthType | null
-  has_password: boolean
-  has_private_key: boolean
+  online: boolean
+  last_seen_at: string | null
+  last_heartbeat_rtt_ms: number | null
+  agent_version: string | null
+  token_prefix: string
 }
 
-export interface HostCreateInput {
+export interface AgentCreateInput {
   name: string
-  connection_type: ConnectionType
-  hostname?: string
-  port?: number
-  ssh_username?: string
-  auth_type?: AuthType
-  password?: string
-  private_key?: string
-  private_key_passphrase?: string
 }
 
-export interface HostUpdateInput {
+export interface AgentUpdateInput {
   name?: string
-  hostname?: string
-  port?: number
-  ssh_username?: string
-  auth_type?: AuthType
-  password?: string
-  private_key?: string
-  private_key_passphrase?: string
 }
 
-export interface TestConnectionResult {
-  success: boolean
-  message: string
+/** Returned only from enrollment/reissue — `token` is shown exactly once. */
+export interface AgentCreateResult {
+  agent: Agent
+  token: string
 }
 
 export type LogSourceMode = 'exact_path' | 'glob' | 'regex' | 'journal'
 
 export interface LogSource {
   id: string
-  host_id: string
+  agent_id: string
   label: string
   mode: LogSourceMode
   path_or_pattern: string

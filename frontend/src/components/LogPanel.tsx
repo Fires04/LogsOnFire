@@ -1,4 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { Checkbox, Group, Indicator, Text, TextInput, Tooltip } from '@mantine/core'
+import { IconSearch } from '@tabler/icons-react'
 import { logWsClient, type FilteredLine, type LogEvent } from '../lib/wsClient'
 import { highlightLogLine } from '../lib/logHighlight'
 
@@ -17,6 +19,16 @@ interface Props {
 
 const FILTER_DEBOUNCE_MS = 300
 const COLORIZE_STORAGE_KEY = 'logsonfire.colorizeLogs'
+
+type Status = 'connecting' | 'live' | 'reconnecting' | 'error' | 'closed'
+
+const STATUS_COLOR: Record<Status, string> = {
+  connecting: 'yellow',
+  reconnecting: 'yellow',
+  live: 'teal',
+  error: 'red',
+  closed: 'gray',
+}
 
 const LogLine = memo(function LogLine({ line, colorize }: { line: DisplayLine; colorize: boolean }) {
   const className = line.isSeparator
@@ -37,7 +49,7 @@ function toDisplayLinesFiltered(lines: FilteredLine[]): DisplayLine[] {
 
 export default function LogPanel({ logSourceId, resolvedPath, title }: Props) {
   const [lines, setLines] = useState<DisplayLine[]>([])
-  const [status, setStatus] = useState<'connecting' | 'live' | 'reconnecting' | 'error' | 'closed'>('connecting')
+  const [status, setStatus] = useState<Status>('connecting')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [filterInput, setFilterInput] = useState('')
   const [filterError, setFilterError] = useState<string | null>(null)
@@ -123,27 +135,60 @@ export default function LogPanel({ logSourceId, resolvedPath, title }: Props) {
     localStorage.setItem(COLORIZE_STORAGE_KEY, value ? 'on' : 'off')
   }
 
+  const statusLabel =
+    status === 'live' ? 'Live' : status === 'closed' ? `Closed${statusMessage ? ` (${statusMessage})` : ''}`
+      : status === 'error' ? `Error${statusMessage ? `: ${statusMessage}` : ''}`
+        : status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'
+
   return (
     <div className="log-panel">
-      <div className="log-panel-header">
-        {title && <strong className="log-panel-title">{title}</strong>}
-        <input
-          className="grep-bar"
+      <Group gap="xs" px="xs" py={6} wrap="nowrap" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+        {title && (
+          <Text fw={600} size="sm" c="white" style={{ maxWidth: '30%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {title}
+          </Text>
+        )}
+        <TextInput
+          size="xs"
+          leftSection={<IconSearch size={14} />}
           value={filterInput}
-          onChange={(e) => applyFilter(e.target.value)}
+          onChange={(e) => applyFilter(e.currentTarget.value)}
           placeholder="grep expression, e.g. -i error -C 3"
           spellCheck={false}
+          style={{ flex: 1, fontFamily: 'var(--mono)' }}
+          styles={{ input: { fontFamily: 'var(--mono)' } }}
         />
-        <label className="log-panel-colorize">
-          <input type="checkbox" checked={colorize} onChange={(e) => toggleColorize(e.target.checked)} />
-          colors
-        </label>
-        <span className={`status-dot status-${status}`} title={statusMessage ?? status} />
-      </div>
-      {filterError && <p className="error grep-error">{filterError}</p>}
-      {status === 'error' && <p className="error">{statusMessage}</p>}
-      {status === 'closed' && <p className="muted">Connection closed ({statusMessage}).</p>}
-      {status === 'reconnecting' && <p className="muted">{statusMessage}</p>}
+        <Checkbox
+          size="xs"
+          label="colors"
+          checked={colorize}
+          onChange={(e) => toggleColorize(e.currentTarget.checked)}
+          styles={{ label: { color: 'var(--mantine-color-dimmed)', fontSize: '0.78rem' } }}
+        />
+        <Tooltip label={statusLabel}>
+          <Indicator color={STATUS_COLOR[status]} size={10} processing={status === 'connecting' || status === 'reconnecting'} />
+        </Tooltip>
+      </Group>
+      {filterError && (
+        <Text size="sm" c="red" px="xs" py={4} bg="rgba(192, 57, 43, 0.1)">
+          {filterError}
+        </Text>
+      )}
+      {status === 'error' && (
+        <Text size="sm" c="red" px="xs" py={4}>
+          {statusMessage}
+        </Text>
+      )}
+      {status === 'closed' && (
+        <Text size="sm" c="dimmed" px="xs" py={4}>
+          Connection closed ({statusMessage}).
+        </Text>
+      )}
+      {status === 'reconnecting' && (
+        <Text size="sm" c="dimmed" px="xs" py={4}>
+          {statusMessage}
+        </Text>
+      )}
       <div className="log-lines" ref={scrollRef} onScroll={handleScroll}>
         {lines.map((l) => (
           <LogLine key={l.key} line={l} colorize={colorize} />

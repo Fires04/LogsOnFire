@@ -24,7 +24,7 @@ class TailError:
 
 @dataclass
 class TailClosed:
-    reason: str  # "rotated" | "host_disconnected" | "stopped"
+    reason: str  # "rotated" | "agent_disconnected" | "stopped" | "error"
 
 
 TailEvent = TailLine | TailError | TailClosed

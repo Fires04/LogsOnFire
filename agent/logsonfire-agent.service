@@ -1,0 +1,27 @@
+[Unit]
+Description=LogsOnFire agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=logsonfire-agent
+Group=logsonfire-agent
+# Read-only local log/journal access, nothing more — see README for how to
+# grant journal access (add this user to systemd-journal/adm) without
+# giving it any broader privileges.
+#
+# ExecStart is a placeholder for manual installs — install.sh rewrites this
+# line to the real `command -v logsonfire-agent` path, since pip puts the
+# entrypoint in /usr/local/bin on Debian/Ubuntu (--break-system-packages),
+# not /usr/bin.
+ExecStart=/usr/bin/logsonfire-agent
+Restart=always
+RestartSec=5
+EnvironmentFile=-/etc/logsonfire-agent/env
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

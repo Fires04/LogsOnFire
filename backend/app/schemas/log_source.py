@@ -31,7 +31,7 @@ class LogSourceUpdate(BaseModel):
 
 class LogSourceOut(BaseModel):
     id: str
-    host_id: str
+    agent_id: str
     label: str
     mode: LogSourceMode
     path_or_pattern: str

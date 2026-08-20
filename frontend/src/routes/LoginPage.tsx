@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { Alert, Button, Center, Paper, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core'
+import { IconAlertCircle, IconFlame } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { ApiError } from '../lib/api'
 
@@ -12,7 +14,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
 
   if (user) {
-    const from = (location.state as { from?: string } | null)?.from ?? '/hosts'
+    const from = (location.state as { from?: string } | null)?.from ?? '/agents'
     return <Navigate to={from} replace />
   }
 
@@ -30,37 +32,42 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="centered-page">
-      <form className="card login-card" onSubmit={onSubmit}>
-        <div className="login-brand">
-          <img src="/logo.png" alt="" className="login-logo" />
-          <h1>Logs On Fire</h1>
-          <p className="muted">Sign in to manage hosts and logs.</p>
-        </div>
-        <label>
-          Email
-          <input
+    <Center mih="100vh" p="md">
+      <Paper component="form" onSubmit={onSubmit} withBorder shadow="md" p="xl" radius="md" w="100%" maw={380}>
+        <Stack align="center" gap={4} mb="md">
+          <ThemeIcon size={56} radius="xl" variant="light" color="flame">
+            <IconFlame size={32} />
+          </ThemeIcon>
+          <Title order={2}>Logs On Fire</Title>
+          <Text c="dimmed" size="sm">
+            Sign in to manage agents and logs.
+          </Text>
+        </Stack>
+        <Stack gap="sm">
+          <TextInput
+            label="Email"
             type="email"
             required
             autoFocus
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.currentTarget.value)}
           />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
+          <PasswordInput
+            label="Password"
             required
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.currentTarget.value)}
           />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
-    </div>
+          {error && (
+            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+              {error}
+            </Alert>
+          )}
+          <Button type="submit" loading={busy} fullWidth mt="xs">
+            Sign in
+          </Button>
+        </Stack>
+      </Paper>
+    </Center>
   )
 }
