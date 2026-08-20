@@ -14,11 +14,11 @@ RUN npm run build
 # reliable (see CLAUDE.md — someone forgetting to hand-bump a semver number
 # happened for real once already, before this existed).
 #
-# Scheme: "<major.minor from the nearest vX.Y git tag>.<commits since that
-# tag>+g<commit hash>" — e.g. tag v0.1 + 7 commits since = "0.1.7+ge1be41b".
-# The patch number auto-increments on every commit; the major.minor jump
-# (e.g. 0.1 -> 0.2, or 1.x -> 2.0) is a deliberate, purely manual action:
-#     git tag v0.2 && git push origin v0.2
+# Scheme: "<major from the nearest vN git tag>.<commits since that tag>
+# +g<commit hash>" — e.g. tag v1 + 7 commits since = "1.7+ge1be41b". The
+# second number auto-increments on every commit; the major jump (e.g.
+# 1.x -> 2.0) is a deliberate, purely manual action:
+#     git tag v2 && git push origin v2
 # All three packages built from this commit (backend, agentcore, agent)
 # get stamped with the identical version below — that's exactly the
 # property the mismatch check needs, so their individual pyproject.toml
@@ -27,7 +27,7 @@ FROM python:3.13-slim AS gitinfo
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 COPY .git ./.git
-RUN TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0") \
+RUN TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0") \
     && BASE=${TAG#v} \
     && COUNT=$(git rev-list --count "${TAG}..HEAD" 2>/dev/null || git rev-list --count HEAD) \
     && HASH=$(git rev-parse --short=12 HEAD) \

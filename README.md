@@ -185,18 +185,18 @@ for the regression test.
 
 The version shown in the UI (login screen, nav footer) and compared
 against each agent's self-reported version comes from git, not a
-hand-edited number: `<major.minor of the nearest "vX.Y" tag>.<commits
-since that tag>+g<commit hash>` — e.g. tag `v0.1` + 7 commits =
-`0.1.7+ge1be41b`. The patch number increments automatically on every
-commit; server and every agent built from the same commit get the exact
-same version, which is what makes the "this agent is out of date" check
-reliable without anyone remembering to bump anything.
+hand-edited number: `<major of the nearest "vN" tag>.<commits since that
+tag>+g<commit hash>` — e.g. tag `v1` + 7 commits = `1.7+ge1be41b`. The
+second number increments automatically on every commit; server and every
+agent built from the same commit get the exact same version, which is
+what makes the "this agent is out of date" check reliable without anyone
+remembering to bump anything.
 
-A major/minor bump is the one part that's still a deliberate choice:
+A major bump is the one part that's still a deliberate choice:
 ```bash
-git tag v0.2 && git push origin v0.2
+git tag v2 && git push origin v2
 ```
-Everything after that tag reports `0.2.0`, `0.2.1`, … until the next tag.
+Everything after that tag reports `2.0`, `2.1`, … until the next tag.
 
 ## Local development (without Docker)
 

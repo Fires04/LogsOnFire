@@ -63,11 +63,15 @@ function UpgradeHint() {
   return (
     <Popover withinPortal position="bottom-end" shadow="md">
       <Popover.Target>
-        <Tooltip label="Version doesn't match the server — click to upgrade">
-          <ActionIcon size="sm" variant="light" color="orange" onClick={(e) => e.stopPropagation()}>
-            <IconRefresh size={13} />
-          </ActionIcon>
-        </Tooltip>
+        <ActionIcon
+          size="sm"
+          variant="light"
+          color="orange"
+          title="Version doesn't match the server — click to upgrade"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <IconRefresh size={13} />
+        </ActionIcon>
       </Popover.Target>
       <Popover.Dropdown maw={360}>
         <Stack gap="xs">

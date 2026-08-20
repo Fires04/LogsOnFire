@@ -148,15 +148,16 @@ only ever asks the connected agent over `/ws/agent` and waits for a reply.
   state.
 
 - **Version is derived from git, not hand-bumped.** `Dockerfile`'s `gitinfo`
-  stage computes `<major.minor from the nearest "vX.Y" tag>.<commits since
-  that tag>+g<hash>` (e.g. tag `v0.1` + 7 commits = `0.1.7+ge1be41b`) and
-  stamps `backend`/`agentcore`/`agent`'s `pyproject.toml` with the
-  identical value at build time — overwriting whatever's checked in there,
-  which is why those files' own `version` lines don't matter and don't need
-  editing. The patch number auto-increments on every commit; a major/minor
-  jump (`0.1` → `0.2`, or `1.x` → `2.0`) is a **deliberate, manual**
-  `git tag vX.Y && git push origin vX.Y` — nothing else triggers it. This
-  exists because a hand-maintained semver number *not* changing between
+  stage computes `<major from the nearest "vN" tag>.<commits since that
+  tag>+g<hash>` (e.g. tag `v1` + 7 commits = `1.7+ge1be41b`) and stamps
+  `backend`/`agentcore`/`agent`'s `pyproject.toml` with the identical value
+  at build time — overwriting whatever's checked in there, which is why
+  those files' own `version` lines don't matter and don't need editing.
+  The second number auto-increments on every commit; a major jump (`1.x` →
+  `2.0`) is a **deliberate, manual** `git tag vN && git push origin vN` —
+  nothing else triggers it. Tags are a single number (`v1`, `v2`, …), not
+  `vX.Y` — the version format is two segments (`major.count`), not three.
+  This exists because a hand-maintained semver number *not* changing between
   builds was a real bug once already: `pip install --upgrade` on a host
   that already had the exact same version string installed was a silent
   no-op even though the server's `/agent/*.whl` content had changed (a
@@ -166,7 +167,7 @@ only ever asks the connected agent over `/ws/agent` and waits for a reply.
   every commit produces a genuinely different version, so a plain
   `pip install --upgrade` (what `agent/upgrade.sh` runs) is always correct.
   If a repo checkout somehow has zero tags, the scheme falls back to
-  `0.0.<total commit count>` — don't let that happen; tag early.
+  `0.<total commit count>` — don't let that happen; tag early.
 
 - **Upgrading an already-installed agent: `agent/upgrade.sh`, not
   `install.sh` again.** It reads `server_url` out of the existing
