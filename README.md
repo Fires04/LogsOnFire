@@ -181,6 +181,23 @@ second. See
 `agentcore/tests/test_journal.py::test_tail_whole_journal_delivers_a_new_line_promptly`
 for the regression test.
 
+### Versioning
+
+The version shown in the UI (login screen, nav footer) and compared
+against each agent's self-reported version comes from git, not a
+hand-edited number: `<major.minor of the nearest "vX.Y" tag>.<commits
+since that tag>+g<commit hash>` — e.g. tag `v0.1` + 7 commits =
+`0.1.7+ge1be41b`. The patch number increments automatically on every
+commit; server and every agent built from the same commit get the exact
+same version, which is what makes the "this agent is out of date" check
+reliable without anyone remembering to bump anything.
+
+A major/minor bump is the one part that's still a deliberate choice:
+```bash
+git tag v0.2 && git push origin v0.2
+```
+Everything after that tag reports `0.2.0`, `0.2.1`, … until the next tag.
+
 ## Local development (without Docker)
 
 Backend (server):
@@ -247,8 +264,12 @@ cd agentcore && source .venv/bin/activate && python -m pytest
   no UI indicator distinguishing "briefly reconnecting" from "agent has
   been unreachable for 10 minutes" beyond the status dot's tooltip and the
   Agents page's last-seen timestamp.
-- Upgrading an already-installed agent to a newer `agentcore`/`agent` build
-  needs `pip install --upgrade --force-reinstall` (or a version bump in
-  `agent/pyproject.toml` / `agentcore/pyproject.toml`) — a plain
-  `--upgrade` is a silent no-op when the version string hasn't changed,
-  even though the server's `/agent/*.whl` content has. See CLAUDE.md.
+- Upgrade an already-installed agent with `agent/upgrade.sh`, not
+  `install.sh` again — it reads the server URL from the agent's existing
+  config, so it doesn't need the token re-entered:
+  ```bash
+  curl -fsSL http://<your-server>:8000/agent/upgrade.sh | sudo bash
+  ```
+  This works reliably because the version itself is derived from git (see
+  "Versioning" below) — every commit is a genuinely different version, so
+  `pip install --upgrade` always detects and installs the newer build.

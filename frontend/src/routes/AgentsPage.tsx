@@ -26,6 +26,7 @@ import {
 } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import { copyToClipboard } from '../lib/clipboard'
+import { httpBase, wsBase } from '../lib/serverOrigin'
 import AgentForm from '../components/AgentForm'
 import Modal from '../components/Modal'
 import type {
@@ -37,18 +38,6 @@ import type {
 } from '../types/models'
 
 dayjs.extend(relativeTime)
-
-/** This server's own WebSocket origin, derived from wherever the browser
- * currently is (localhost, a LAN hostname, a real domain behind a proxy —
- * all handled automatically) rather than asked for separately. */
-function wsBase(): string {
-  const isHttps = window.location.protocol === 'https:'
-  return `${isHttps ? 'wss' : 'ws'}://${window.location.host}`
-}
-
-function httpBase(): string {
-  return `${window.location.protocol}//${window.location.host}`
-}
 
 /** The manual fallback one-liner (README's Quick start) — has the token as
  * a plain CLI argument, so it lands in the target host's shell history and
@@ -261,7 +250,7 @@ export default function AgentsPage() {
             render: (agent) =>
               agent.agent_version ? (
                 agent.server_version_mismatch ? (
-                  <Tooltip label="Doesn't match the server's version — pip install --upgrade --force-reinstall on this host, then restart the service.">
+                  <Tooltip label={`Doesn't match the server's version — on this host: curl -fsSL ${httpBase()}/agent/upgrade.sh | sudo bash`}>
                     <Badge variant="light" color="orange" rightSection={<IconAlertTriangle size={11} />}>
                       {agent.agent_version}
                     </Badge>

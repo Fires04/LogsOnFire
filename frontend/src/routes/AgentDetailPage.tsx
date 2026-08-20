@@ -17,6 +17,7 @@ import {
 } from '@mantine/core'
 import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconTrash } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
+import { httpBase } from '../lib/serverOrigin'
 import LogSourceForm from '../components/LogSourceForm'
 import LogSourceViewer from '../components/LogSourceViewer'
 import type { Agent, LogSource, LogSourceCreateInput, ResolveResponse } from '../types/models'
@@ -129,10 +130,10 @@ export default function AgentDetailPage() {
 
       {agent.server_version_mismatch && (
         <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light">
-          This agent's version ({agent.agent_version}) doesn't match the server's — run{' '}
-          <code>pip install --upgrade --force-reinstall</code> for <code>logsonfire-agent</code> and{' '}
-          <code>logsonfire-agentcore</code> on this host, then{' '}
-          <code>systemctl restart logsonfire-agent</code>.
+          This agent's version ({agent.agent_version}) doesn't match the server's — on this host, run:{' '}
+          <Text component="code" fz="sm">
+            curl -fsSL {httpBase()}/agent/upgrade.sh | sudo bash
+          </Text>
         </Alert>
       )}
 

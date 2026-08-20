@@ -8,32 +8,39 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# ---- Stage 2: derive a build version from the current git commit — every
-# build gets a distinct version automatically, so the server<->agent
-# version-mismatch check (app/core/version.py) can never go stale from
-# someone forgetting to hand-bump a semver number (see CLAUDE.md — that
-# happened for real once already, before this existed). All three packages
-# built from this same commit (backend, agentcore, agent) get stamped with
-# the identical version below, which is exactly the property the mismatch
-# check needs: it fires precisely when an agent hasn't been reinstalled
-# since a newer commit was deployed to the server.
+# ---- Stage 2: derive a build version from git — every build gets a
+# distinct, auto-incrementing version with no manual bump needed for the
+# server<->agent version-mismatch check (app/core/version.py) to stay
+# reliable (see CLAUDE.md — someone forgetting to hand-bump a semver number
+# happened for real once already, before this existed).
+#
+# Scheme: "<major.minor from the nearest vX.Y git tag>.<commits since that
+# tag>+g<commit hash>" — e.g. tag v0.1 + 7 commits since = "0.1.7+ge1be41b".
+# The patch number auto-increments on every commit; the major.minor jump
+# (e.g. 0.1 -> 0.2, or 1.x -> 2.0) is a deliberate, purely manual action:
+#     git tag v0.2 && git push origin v0.2
+# All three packages built from this commit (backend, agentcore, agent)
+# get stamped with the identical version below — that's exactly the
+# property the mismatch check needs, so their individual pyproject.toml
+# version fields are overwritten rather than treated as a per-package base.
 FROM python:3.13-slim AS gitinfo
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 COPY .git ./.git
-# "0.0.0+g<hash>" is a valid PEP 440 local version segment (letters/digits/
-# periods only — no hyphens allowed there, unlike a git describe --dirty
-# suffix would produce).
-RUN echo -n "0.0.0+g$(git rev-parse --short=12 HEAD)" > /version.txt
+RUN TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0") \
+    && BASE=${TAG#v} \
+    && COUNT=$(git rev-list --count "${TAG}..HEAD" 2>/dev/null || git rev-list --count HEAD) \
+    && HASH=$(git rev-parse --short=12 HEAD) \
+    && echo -n "${BASE}.${COUNT}+g${HASH}" > /version.txt
 
 # ---- Stage 3: build the agent/agentcore wheels the server will host for
-# `agent/install.sh` to download onto monitored hosts. --no-deps: we only
-# want wheels for our own two packages here — their third-party
-# dependencies (websockets etc.) resolve from PyPI normally when
-# install.sh runs `pip install` on the target host. Wheel filenames carry
-# the git-derived version (see gitinfo above), so a MANIFEST listing the
-# real built filenames ships alongside them — install.sh reads it rather
-# than hardcoding a filename that would go stale on every build.
+# `agent/install.sh`/`agent/upgrade.sh` to download onto monitored hosts.
+# --no-deps: we only want wheels for our own two packages here — their
+# third-party dependencies (websockets etc.) resolve from PyPI normally
+# when install.sh runs `pip install` on the target host. Wheel filenames
+# carry the git-derived version (see gitinfo above), so a MANIFEST listing
+# the real built filenames ships alongside them — install.sh/upgrade.sh
+# read it rather than hardcoding a filename that would go stale every build.
 FROM python:3.13-slim AS agent-build
 WORKDIR /build
 COPY --from=gitinfo /version.txt /version.txt
@@ -65,13 +72,14 @@ COPY --from=frontend-build /fe/dist ./app/static
 
 # Agent distribution: served at /agent/* by the same FastAPI static
 # fallback (app/main.py's spa_fallback route serves any real file under
-# app/static by its relative path) — this is what agent/install.sh
-# downloads from `${SERVER_URL}/agent/...`, reading MANIFEST first to learn
-# the real (versioned) wheel filenames.
+# app/static by its relative path) — this is what agent/install.sh and
+# agent/upgrade.sh download from `${SERVER_URL}/agent/...`, reading
+# MANIFEST first to learn the real (versioned) wheel filenames.
 RUN mkdir -p ./app/static/agent
 COPY --from=agent-build /out/ ./app/static/agent/
 COPY agent/logsonfire-agent.service ./app/static/agent/logsonfire-agent.service
 COPY agent/install.sh ./app/static/agent/install.sh
+COPY agent/upgrade.sh ./app/static/agent/upgrade.sh
 
 ENV DB_PATH=/data/logsonfire.db \
     PYTHONUNBUFFERED=1
