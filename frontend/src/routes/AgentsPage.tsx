@@ -262,7 +262,9 @@ export default function AgentsPage() {
                     <UpgradeHint />
                   </Group>
                 ) : (
-                  <Badge variant="light">{agent.agent_version}</Badge>
+                  <Badge variant="light" color="green">
+                    {agent.agent_version}
+                  </Badge>
                 )
               ) : (
                 <Text c="dimmed">—</Text>

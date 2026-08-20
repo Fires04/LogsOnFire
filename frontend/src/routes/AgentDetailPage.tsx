@@ -120,7 +120,7 @@ export default function AgentDetailPage() {
           {agent.agent_version && (
             <Badge
               variant="light"
-              color={agent.server_version_mismatch ? 'orange' : undefined}
+              color={agent.server_version_mismatch ? 'orange' : 'green'}
               rightSection={agent.server_version_mismatch ? <IconAlertTriangle size={11} /> : undefined}
             >
               {agent.agent_version}
