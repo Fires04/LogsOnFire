@@ -22,6 +22,16 @@ export interface AgentCreateResult {
   token: string
 }
 
+export interface InstallLinkCreateInput {
+  token: string
+  server_url: string
+}
+
+export interface InstallLinkResult {
+  code: string
+  expires_in_seconds: number
+}
+
 export type LogSourceMode = 'exact_path' | 'glob' | 'regex' | 'journal'
 
 export interface LogSource {
