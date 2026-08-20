@@ -1,0 +1,19 @@
+[project]
+name = "logsonfire-agent"
+version = "0.1.0"
+description = "LogsOnFire agent: runs on a monitored host, connects out to the LogsOnFire server, and streams log lines it's asked to tail."
+requires-python = ">=3.11"
+dependencies = [
+    "websockets>=12.0",
+    "logsonfire-agentcore",
+]
+
+[project.scripts]
+logsonfire-agent = "logsonfire_agent.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["logsonfire_agent*"]

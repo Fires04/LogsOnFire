@@ -1,108 +1,73 @@
+"""REST-layer log-source resolve tests. Provider-level pattern-matching
+behavior (glob/regex/exact_path semantics, read_tail) now lives in
+agentcore/tests/test_local_provider.py, next to the code that implements it.
+"""
 from __future__ import annotations
 
-from pathlib import Path
+from httpx import AsyncClient
 
-import pytest
-
-from app.models.log_source import LogSource
-from app.providers.local import LocalFileProvider
+from tests.fake_agent import attach_fake_agent
 
 
-def _log_source(**kwargs) -> LogSource:
-    defaults = dict(id="ls1", host_id="h1", label="test")
-    defaults.update(kwargs)
-    return LogSource(**defaults)
+async def test_resolve_preview_offline_agent_returns_clean_error(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "offline-agent"})
+    agent_id = create.json()["agent"]["id"]
 
-
-async def test_exact_path_resolves_when_file_exists(tmp_path: Path):
-    f = tmp_path / "app.log"
-    f.write_text("line1\nline2\n")
-    provider = LocalFileProvider()
-    files, truncated = await provider.resolve_sources(_log_source(mode="exact_path", path_or_pattern=str(f)))
-    assert not truncated
-    assert len(files) == 1
-    assert files[0].path == str(f)
-    assert files[0].size == f.stat().st_size
-
-
-async def test_exact_path_missing_file_returns_empty(tmp_path: Path):
-    provider = LocalFileProvider()
-    files, truncated = await provider.resolve_sources(
-        _log_source(mode="exact_path", path_or_pattern=str(tmp_path / "nope.log"))
+    resp = await auth_client.post(
+        f"/api/agents/{agent_id}/log-sources/resolve-preview",
+        json={"label": "x", "mode": "exact_path", "path_or_pattern": "/var/log/syslog"},
     )
-    assert files == []
-    assert not truncated
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["error"] is not None
+    assert "offline" in body["error"].lower()
+    assert body["files"] == []
 
 
-async def test_glob_matches_nested_pattern_like_var_www(tmp_path: Path):
-    # Mirrors the user's original example: /var/www/*/logs/*.log
-    (tmp_path / "site-a" / "logs").mkdir(parents=True)
-    (tmp_path / "site-b" / "logs").mkdir(parents=True)
-    (tmp_path / "site-a" / "logs" / "app.log").write_text("a\n")
-    (tmp_path / "site-b" / "logs" / "app.log").write_text("b\n")
-    (tmp_path / "site-b" / "logs" / "other.txt").write_text("ignored\n")
+async def test_resolve_preview_connected_agent_returns_files(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "connected-agent"})
+    agent_id = create.json()["agent"]["id"]
 
-    provider = LocalFileProvider()
-    pattern = str(tmp_path / "*" / "logs" / "*.log")
-    files, truncated = await provider.resolve_sources(_log_source(mode="glob", path_or_pattern=pattern))
-    assert not truncated
-    paths = sorted(f.path for f in files)
-    assert paths == sorted(
-        [str(tmp_path / "site-a" / "logs" / "app.log"), str(tmp_path / "site-b" / "logs" / "app.log")]
+    def handler(msg: dict) -> dict | None:
+        if msg["type"] == "resolve":
+            assert msg["log_source"]["mode"] == "glob"
+            return {"files": [{"path": "/var/log/app.log", "size": 123, "mtime": 1.0}], "truncated": False}
+        return None
+
+    attach_fake_agent(agent_id, handler)
+
+    resp = await auth_client.post(
+        f"/api/agents/{agent_id}/log-sources/resolve-preview",
+        json={"label": "x", "mode": "glob", "path_or_pattern": "/var/log/*.log"},
     )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["error"] is None
+    assert body["files"] == [{"path": "/var/log/app.log", "size": 123, "mtime": 1.0}]
 
 
-async def test_glob_pattern_with_shell_metacharacters_in_filename_is_treated_literally(tmp_path: Path):
-    """A filename containing shell metacharacters must never be executed —
-    Python's glob module never invokes a shell, so this just has to match
-    (or not match) as a literal filename like any other.
-    """
-    tricky = tmp_path / "app;touch_pwned.log"
-    tricky.write_text("hello\n")
+async def test_resolve_saved_log_source_uses_its_stored_pattern(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "resolve-saved"})
+    agent_id = create.json()["agent"]["id"]
 
-    provider = LocalFileProvider()
-    files, truncated = await provider.resolve_sources(
-        _log_source(mode="glob", path_or_pattern=str(tmp_path / "*.log"))
+    seen_patterns: list[str] = []
+
+    def handler(msg: dict) -> dict | None:
+        if msg["type"] == "resolve":
+            seen_patterns.append(msg["log_source"]["path_or_pattern"])
+            return {"files": [], "truncated": False, "warning": "no matches yet"}
+        return None
+
+    attach_fake_agent(agent_id, handler)
+
+    created = await auth_client.post(
+        f"/api/agents/{agent_id}/log-sources",
+        json={"label": "app", "mode": "exact_path", "path_or_pattern": "/var/log/app.log"},
     )
-    assert not truncated
-    assert [f.path for f in files] == [str(tricky)]
-    assert not (tmp_path / "pwned").exists()
+    log_source_id = created.json()["id"]
 
-
-async def test_regex_mode_filters_by_relative_path(tmp_path: Path):
-    (tmp_path / "site-a" / "logs").mkdir(parents=True)
-    (tmp_path / "site-a" / "logs" / "app.log").write_text("a\n")
-    (tmp_path / "site-a" / "logs" / "debug.log").write_text("d\n")
-    (tmp_path / "site-a" / "cache.tmp").write_text("x\n")
-
-    provider = LocalFileProvider()
-    log_source = _log_source(mode="regex", path_or_pattern=r"logs/.*\.log$", regex_base_dir=str(tmp_path))
-    files, truncated = await provider.resolve_sources(log_source)
-    assert not truncated
-    paths = sorted(f.path for f in files)
-    assert paths == sorted(
-        [str(tmp_path / "site-a" / "logs" / "app.log"), str(tmp_path / "site-a" / "logs" / "debug.log")]
-    )
-
-
-async def test_regex_mode_invalid_pattern_raises_value_error(tmp_path: Path):
-    provider = LocalFileProvider()
-    log_source = _log_source(mode="regex", path_or_pattern="[", regex_base_dir=str(tmp_path))
-    with pytest.raises(ValueError):
-        await provider.resolve_sources(log_source)
-
-
-async def test_read_tail_returns_last_n_lines(tmp_path: Path):
-    f = tmp_path / "big.log"
-    f.write_text("".join(f"line{i}\n" for i in range(1000)))
-    provider = LocalFileProvider()
-    lines = await provider.read_tail(str(f), 5)
-    assert lines == [f"line{i}" for i in range(995, 1000)]
-
-
-async def test_read_tail_handles_file_smaller_than_requested(tmp_path: Path):
-    f = tmp_path / "small.log"
-    f.write_text("only\ntwo\n")
-    provider = LocalFileProvider()
-    lines = await provider.read_tail(str(f), 100)
-    assert lines == ["only", "two"]
+    resp = await auth_client.post(f"/api/agents/{agent_id}/log-sources/{log_source_id}/resolve")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["warning"] == "no matches yet"
+    assert seen_patterns == ["/var/log/app.log"]

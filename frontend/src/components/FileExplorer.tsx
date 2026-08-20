@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { ActionIcon, Anchor, Breadcrumbs, Button, Group, ScrollArea, Stack, Table, Text, Title } from '@mantine/core'
+import { IconArrowUp, IconFile, IconFolder, IconLock } from '@tabler/icons-react'
 import { api } from '../lib/api'
 import type { BrowseResponse, DirEntry } from '../types/models'
 
 interface Props {
-  hostId: string
+  agentId: string
   /** Called when the user picks a file. */
   onSelectFile: (path: string) => void
   /** Called when the user picks a directory via "Use this folder" (for regex base dir / glob base). */
@@ -11,7 +13,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function FileExplorer({ hostId, onSelectFile, onSelectDirectory, onClose }: Props) {
+export default function FileExplorer({ agentId, onSelectFile, onSelectDirectory, onClose }: Props) {
   const [data, setData] = useState<BrowseResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -21,7 +23,7 @@ export default function FileExplorer({ hostId, onSelectFile, onSelectDirectory, 
     setRequestError(null)
     const query = path ? `?path=${encodeURIComponent(path)}` : ''
     api
-      .get<BrowseResponse>(`/api/hosts/${hostId}/browse${query}`)
+      .get<BrowseResponse>(`/api/agents/${agentId}/browse${query}`)
       .then(setData)
       .catch((err: Error) => setRequestError(err.message))
       .finally(() => setLoading(false))
@@ -30,7 +32,7 @@ export default function FileExplorer({ hostId, onSelectFile, onSelectDirectory, 
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostId])
+  }, [agentId])
 
   function handleEntryClick(entry: DirEntry) {
     if (entry.is_dir) {
@@ -55,72 +57,87 @@ export default function FileExplorer({ hostId, onSelectFile, onSelectDirectory, 
   }
 
   return (
-    <div className="card file-explorer">
-      <div className="file-explorer-header">
-        <h2>Browse files</h2>
-        <button type="button" className="secondary" onClick={onClose}>
+    <Stack gap="sm">
+      <Group justify="space-between">
+        <Title order={4}>Browse files</Title>
+        <Button variant="default" size="xs" onClick={onClose}>
           Close
-        </button>
-      </div>
+        </Button>
+      </Group>
 
       {data && (
-        <div className="file-explorer-toolbar">
-          <button type="button" className="secondary" onClick={() => data.parent && load(data.parent)} disabled={!data.parent}>
-            ↑ Up
-          </button>
-          <code className="file-explorer-path">
-            {pathCrumbs(data.path).map((crumb, i) => (
-              // crumb 0 is "/" itself, which already supplies the leading
-              // slash — only crumbs after the first real segment need one
-              // prepended, so "/", "var", "log" renders as "/var/log", not "//var/log".
-              <span key={crumb.path}>
-                {i > 1 && '/'}
-                <button type="button" className="file-explorer-crumb" onClick={() => load(crumb.path)}>
+        <Group gap="xs" wrap="nowrap">
+          <ActionIcon variant="default" onClick={() => data.parent && load(data.parent)} disabled={!data.parent}>
+            <IconArrowUp size={16} />
+          </ActionIcon>
+          <ScrollArea type="auto" style={{ flex: 1 }} scrollbarSize={6}>
+            <Breadcrumbs separator="/" style={{ whiteSpace: 'nowrap' }}>
+              {pathCrumbs(data.path).map((crumb) => (
+                <Anchor key={crumb.path} component="button" type="button" fz="sm" ff="monospace" onClick={() => load(crumb.path)}>
                   {crumb.label}
-                </button>
-              </span>
-            ))}
-          </code>
+                </Anchor>
+              ))}
+            </Breadcrumbs>
+          </ScrollArea>
           {onSelectDirectory && (
-            <button type="button" onClick={() => onSelectDirectory(data.path)}>
+            <Button size="xs" onClick={() => onSelectDirectory(data.path)}>
               Use this folder
-            </button>
+            </Button>
           )}
-        </div>
+        </Group>
       )}
 
-      {loading && <p className="muted">Loading…</p>}
-      {requestError && <p className="error">{requestError}</p>}
-      {data?.error && <p className="error">{data.error}</p>}
+      {loading && <Text c="dimmed">Loading…</Text>}
+      {requestError && <Text c="red">{requestError}</Text>}
+      {data?.error && <Text c="red">{data.error}</Text>}
 
       {data && !loading && !data.error && (
-        <ul className="file-explorer-list">
-          {data.entries.length === 0 && <li className="muted">Empty directory.</li>}
-          {data.entries.map((entry) => (
-            <li
-              key={entry.path}
-              className={
-                entry.readable === false ? 'file-explorer-entry file-explorer-entry-unreadable' : 'file-explorer-entry'
-              }
-              onClick={() => handleEntryClick(entry)}
-              title={entry.readable === false ? 'You likely do not have read access to this file' : undefined}
-            >
-              <span className="file-explorer-icon">{entry.is_dir ? '📁' : '📄'}</span>
-              <span className="file-explorer-name">{entry.name}</span>
-              {entry.permissions && (
-                <code className="muted file-explorer-perms">
-                  {entry.permissions}
-                  {entry.readable === false && ' 🚫'}
-                </code>
+        <ScrollArea.Autosize mah="50vh">
+          <Table highlightOnHover verticalSpacing={4}>
+            <Table.Tbody>
+              {data.entries.length === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={3}>
+                    <Text c="dimmed">Empty directory.</Text>
+                  </Table.Td>
+                </Table.Tr>
               )}
-              {!entry.is_dir && typeof entry.size === 'number' && (
-                <span className="muted file-explorer-size">{entry.size.toLocaleString()} B</span>
-              )}
-            </li>
-          ))}
-          {data.truncated && <li className="muted">List truncated — narrow it down by navigating deeper.</li>}
-        </ul>
+              {data.entries.map((entry) => (
+                <Table.Tr
+                  key={entry.path}
+                  onClick={() => handleEntryClick(entry)}
+                  style={{ cursor: 'pointer', opacity: entry.readable === false ? 0.6 : 1 }}
+                  title={entry.readable === false ? 'You likely do not have read access to this file' : undefined}
+                >
+                  <Table.Td w={24}>{entry.is_dir ? <IconFolder size={16} /> : <IconFile size={16} />}</Table.Td>
+                  <Table.Td>{entry.name}</Table.Td>
+                  <Table.Td>
+                    {entry.permissions && (
+                      <Text component="code" fz="xs" c="dimmed">
+                        {entry.permissions}
+                      </Text>
+                    )}
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    {entry.readable === false ? (
+                      <IconLock size={14} color="var(--mantine-color-red-6)" />
+                    ) : !entry.is_dir && typeof entry.size === 'number' ? (
+                      <Text fz="xs" c="dimmed">
+                        {entry.size.toLocaleString()} B
+                      </Text>
+                    ) : null}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+          {data.truncated && (
+            <Text c="dimmed" fz="sm" mt="xs">
+              List truncated — narrow it down by navigating deeper.
+            </Text>
+          )}
+        </ScrollArea.Autosize>
       )}
-    </div>
+    </Stack>
   )
 }

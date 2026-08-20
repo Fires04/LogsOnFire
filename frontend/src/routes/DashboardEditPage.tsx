@@ -1,88 +1,109 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Alert, Button, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
+import { IconArrowLeft } from '@tabler/icons-react'
+import type { Layout } from 'react-grid-layout'
 import { api, ApiError } from '../lib/api'
-import type { Dashboard, DashboardPanelCreate, Host, LogSource, ResolveResponse } from '../types/models'
+import DashboardGrid, { type GridPanel } from '../components/DashboardGrid'
+import { qualifiedLabel } from '../lib/labels'
+import type { Agent, Dashboard, DashboardPanelCreate, LogSource, ResolveResponse } from '../types/models'
 
-interface DraftPanel extends DashboardPanelCreate {
-  label: string // display-only, not persisted directly (derived from log source + resolved path)
-}
+const DEFAULT_W = 6
+const DEFAULT_H = 6
 
 export default function DashboardEditPage() {
   const { dashboardId } = useParams<{ dashboardId: string }>()
   const navigate = useNavigate()
 
   const [name, setName] = useState('')
-  const [panels, setPanels] = useState<DraftPanel[]>([])
-  const [hosts, setHosts] = useState<Host[]>([])
+  const [panels, setPanels] = useState<GridPanel[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // "add panel" form state
-  const [selectedHostId, setSelectedHostId] = useState('')
-  const [hostLogSources, setHostLogSources] = useState<LogSource[]>([])
-  const [selectedLogSourceId, setSelectedLogSourceId] = useState('')
-  const [selectedResolvedPath, setSelectedResolvedPath] = useState<string | undefined>(undefined)
+  // Every agent's log sources, loaded once, so the picker can search/group
+  // across all of them at once instead of a two-step agent -> log-source
+  // drill-down.
+  const [entries, setEntries] = useState<{ agent: Agent; logSource: LogSource }[]>([])
+
+  const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<string[] | null>(null)
   const [resolveWarning, setResolveWarning] = useState<string | null>(null)
   const [resolving, setResolving] = useState(false)
-  const [width, setWidth] = useState(6)
 
   const load = useCallback(async () => {
     if (!dashboardId) return
-    const [dashboard, hostList] = await Promise.all([
+    const [dashboard, agents] = await Promise.all([
       api.get<Dashboard>(`/api/dashboards/${dashboardId}`),
-      api.get<Host[]>('/api/hosts'),
+      api.get<Agent[]>('/api/agents'),
     ])
+
+    const allEntries: { agent: Agent; logSource: LogSource }[] = []
+    await Promise.all(
+      agents.map(async (agent) => {
+        const sources = await api.get<LogSource[]>(`/api/agents/${agent.id}/log-sources`)
+        for (const logSource of sources) allEntries.push({ agent, logSource })
+      }),
+    )
+    setEntries(allEntries)
+
     setName(dashboard.name)
     setPanels(
-      dashboard.panels.map((p) => ({
-        log_source_id: p.log_source_id,
-        resolved_path: p.resolved_path ?? undefined,
-        position_x: p.position_x,
-        position_y: p.position_y,
-        width: p.width,
-        height: p.height,
-        display_order: p.display_order,
-        label: p.resolved_path ?? p.log_source_id,
-      })),
+      dashboard.panels.map((p) => {
+        const entry = allEntries.find((e) => e.logSource.id === p.log_source_id)
+        return {
+          id: p.id,
+          logSourceId: p.log_source_id,
+          resolvedPath: p.resolved_path ?? undefined,
+          title: entry ? qualifiedLabel(entry.agent, entry.logSource) : (p.resolved_path ?? p.log_source_id),
+          x: p.position_x,
+          y: p.position_y,
+          w: p.width || DEFAULT_W,
+          h: p.height || DEFAULT_H,
+        }
+      }),
     )
-    setHosts(hostList)
   }, [dashboardId])
 
   useEffect(() => {
     load().finally(() => setLoading(false))
   }, [load])
 
-  useEffect(() => {
-    setSelectedLogSourceId('')
-    setCandidates(null)
-    if (!selectedHostId) {
-      setHostLogSources([])
-      return
+  const pickerData = useMemo(() => {
+    const byAgent = new Map<string, { agent: Agent; items: { value: string; label: string }[] }>()
+    for (const { agent, logSource } of entries) {
+      if (!byAgent.has(agent.id)) byAgent.set(agent.id, { agent, items: [] })
+      byAgent.get(agent.id)!.items.push({ value: logSource.id, label: logSource.label })
     }
-    api.get<LogSource[]>(`/api/hosts/${selectedHostId}/log-sources`).then(setHostLogSources)
-  }, [selectedHostId])
+    return [...byAgent.values()]
+      .sort((a, b) => a.agent.name.localeCompare(b.agent.name))
+      .map(({ agent, items }) => ({ group: agent.name, items }))
+  }, [entries])
 
-  async function handlePickLogSource(logSourceId: string) {
+  function nextY() {
+    return panels.reduce((max, p) => Math.max(max, p.y + p.h), 0)
+  }
+
+  async function handlePickLogSource(logSourceId: string | null) {
     setSelectedLogSourceId(logSourceId)
     setCandidates(null)
-    setSelectedResolvedPath(undefined)
     setResolveWarning(null)
-    const source = hostLogSources.find((s) => s.id === logSourceId)
-    if (!source) return
-    if (source.mode === 'exact_path') return // no resolving needed, resolved_path stays undefined
+    if (!logSourceId) return
+    const entry = entries.find((e) => e.logSource.id === logSourceId)
+    if (!entry) return
+    const { agent, logSource } = entry
+
+    if (logSource.mode === 'exact_path') {
+      addPanel(agent, logSource, undefined)
+      return
+    }
 
     setResolving(true)
     try {
-      const result = await api.post<ResolveResponse>(
-        `/api/hosts/${selectedHostId}/log-sources/${logSourceId}/resolve`,
-      )
+      const result = await api.post<ResolveResponse>(`/api/agents/${agent.id}/log-sources/${logSource.id}/resolve`)
       if (result.warning) setResolveWarning(result.warning)
       if (result.files.length === 1) {
-        // Deterministic (journal, or a pattern that happens to match exactly
-        // one file) — skip straight to the width/add step, same as exact_path.
-        setSelectedResolvedPath(result.files[0].path)
+        addPanel(agent, logSource, result.files[0].path)
       } else if (result.files.length > 1) {
         setCandidates(result.files.map((f) => f.path))
       }
@@ -91,39 +112,51 @@ export default function DashboardEditPage() {
     }
   }
 
-  function addPanel(resolvedPath?: string) {
-    const source = hostLogSources.find((s) => s.id === selectedLogSourceId)
-    if (!source) return
+  function addPanel(agent: Agent, logSource: LogSource, resolvedPath: string | undefined) {
     setPanels((prev) => [
       ...prev,
       {
-        log_source_id: source.id,
-        resolved_path: resolvedPath,
-        position_x: 0,
-        position_y: prev.length,
-        width,
-        height: 6,
-        display_order: prev.length,
-        label: `${source.label}${resolvedPath ? ` — ${resolvedPath}` : ''}`,
+        id: `draft-${crypto.randomUUID()}`,
+        logSourceId: logSource.id,
+        resolvedPath,
+        title: qualifiedLabel(agent, logSource),
+        x: 0,
+        y: nextY(),
+        w: DEFAULT_W,
+        h: DEFAULT_H,
       },
     ])
-    setSelectedLogSourceId('')
-    setSelectedResolvedPath(undefined)
+    setSelectedLogSourceId(null)
     setCandidates(null)
   }
 
-  function removePanel(index: number) {
-    setPanels((prev) => prev.filter((_, i) => i !== index))
+  function removePanel(id: string) {
+    setPanels((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  function handleLayoutChange(layout: Layout) {
+    setPanels((prev) =>
+      prev.map((p) => {
+        const item = layout.find((l) => l.i === p.id)
+        return item ? { ...p, x: item.x, y: item.y, w: item.w, h: item.h } : p
+      }),
+    )
   }
 
   async function handleSave() {
     setSaving(true)
     setError(null)
     try {
-      await api.patch(`/api/dashboards/${dashboardId}`, {
-        name,
-        panels: panels.map(({ label: _label, ...p }, i) => ({ ...p, display_order: i, position_y: i })),
-      })
+      const payload: DashboardPanelCreate[] = panels.map((p, i) => ({
+        log_source_id: p.logSourceId,
+        resolved_path: p.resolvedPath,
+        position_x: p.x,
+        position_y: p.y,
+        width: p.w,
+        height: p.h,
+        display_order: i,
+      }))
+      await api.patch(`/api/dashboards/${dashboardId}`, { name, panels: payload })
       navigate('/dashboards')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save')
@@ -132,107 +165,75 @@ export default function DashboardEditPage() {
     }
   }
 
-  if (loading) return <div className="page">Loading…</div>
+  if (loading) return <Text c="dimmed">Loading…</Text>
+
+  const pendingEntry = entries.find((e) => e.logSource.id === selectedLogSourceId)
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <p className="muted">
-          <Link to="/dashboards">← Dashboards</Link>
-        </p>
-        <label>
-          Dashboard name
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-      </header>
-
-      <div className="layout-two-col">
-        <section>
-          <h2>Panels ({panels.length})</h2>
-          {panels.length === 0 ? (
-            <p className="muted">No panels yet.</p>
-          ) : (
-            <ul className="host-list">
-              {panels.map((p, i) => (
-                <li key={i} className="card host-card">
-                  <div className="host-card-main">
-                    <code>{p.label}</code>
-                    <span className="muted">width {p.width}/12</span>
-                  </div>
-                  <div className="host-card-actions">
-                    <button onClick={() => removePanel(i)} className="danger">
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {error && <p className="error">{error}</p>}
-          <button onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save dashboard'}
-          </button>
-        </section>
-
-        <div className="card">
-          <h2>Add panel</h2>
-          <label>
-            Host
-            <select value={selectedHostId} onChange={(e) => setSelectedHostId(e.target.value)}>
-              <option value="">— select a host —</option>
-              {hosts.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedHostId && (
-            <label>
-              Log source
-              <select value={selectedLogSourceId} onChange={(e) => handlePickLogSource(e.target.value)}>
-                <option value="">— select a log source —</option>
-                {hostLogSources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {resolving && <p className="muted">Searching for matches…</p>}
-          {!resolving && resolveWarning && <p className="warning">⚠ {resolveWarning}</p>}
-
-          {selectedLogSourceId && !candidates && !resolving && (
-            <>
-              <label>
-                Panel width
-                <select value={width} onChange={(e) => setWidth(Number(e.target.value))}>
-                  <option value={12}>Full row</option>
-                  <option value={6}>Half</option>
-                  <option value={4}>Third</option>
-                </select>
-              </label>
-              <button onClick={() => addPanel(selectedResolvedPath)}>Add panel</button>
-            </>
-          )}
-
-          {candidates && (
-            <div className="preview-box">
-              <p className="muted">The pattern matches multiple files — pick one for this panel:</p>
-              <ul className="preview-list">
-                {candidates.map((path) => (
-                  <li key={path}>
-                    <button onClick={() => addPanel(path)}>{path}</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+    <Stack gap="md" style={{ height: '100%' }}>
+      <div>
+        <Link to="/dashboards" style={{ color: 'var(--mantine-color-dimmed)', fontSize: '0.85rem' }}>
+          <IconArrowLeft size={12} style={{ verticalAlign: -1 }} /> Dashboards
+        </Link>
       </div>
-    </div>
+
+      <Group justify="space-between" wrap="wrap">
+        <TextInput
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          size="lg"
+          variant="unstyled"
+          fw={700}
+          style={{ flex: 1, minWidth: 200 }}
+        />
+        <Button onClick={handleSave} loading={saving}>
+          Save dashboard
+        </Button>
+      </Group>
+      {error && <Text c="red">{error}</Text>}
+
+      <Paper withBorder p="md" radius="md">
+        <Stack gap="xs">
+          <Title order={5}>Add panel</Title>
+          <Select
+            placeholder="Search log sources across every agent…"
+            searchable
+            clearable
+            data={pickerData}
+            value={selectedLogSourceId}
+            onChange={handlePickLogSource}
+          />
+          {resolving && <Text c="dimmed" size="sm">Searching for matches…</Text>}
+          {resolveWarning && <Text c="yellow" size="sm">⚠ {resolveWarning}</Text>}
+          {candidates && pendingEntry && (
+            <Alert color="blue" variant="light" title="Pattern matches multiple files — pick one">
+              <Stack gap={4}>
+                {candidates.map((path) => (
+                  <Button
+                    key={path}
+                    variant="subtle"
+                    size="xs"
+                    justify="flex-start"
+                    onClick={() => addPanel(pendingEntry.agent, pendingEntry.logSource, path)}
+                  >
+                    {path}
+                  </Button>
+                ))}
+              </Stack>
+            </Alert>
+          )}
+        </Stack>
+      </Paper>
+
+      <Text c="dimmed" size="sm">
+        Drag panels to rearrange, drag a corner to resize — saved automatically with "Save dashboard".
+      </Text>
+
+      {panels.length === 0 ? (
+        <Text c="dimmed">No panels yet — add one above.</Text>
+      ) : (
+        <DashboardGrid panels={panels} onLayoutChange={handleLayoutChange} onRemove={removePanel} />
+      )}
+    </Stack>
   )
 }

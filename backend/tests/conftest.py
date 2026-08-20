@@ -15,7 +15,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     db_path = os.path.join(tmp_dir, "test.db")
 
     os.environ["DB_PATH"] = db_path
-    os.environ["MASTER_KEY"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="  # valid base64, 32 bytes, test-only
+    os.environ["AGENT_TOKEN_PEPPER"] = "test-pepper-not-for-production-32bytes+"
     os.environ["JWT_SECRET"] = "test-secret-not-for-production-32bytes+"
     os.environ["ADMIN_EMAIL"] = "admin@example.com"
     os.environ["ADMIN_PASSWORD"] = "test-admin-password"
@@ -24,16 +24,14 @@ async def client() -> AsyncIterator[AsyncClient]:
     # Reset every module-level cache that could leak state between tests.
     from app import config as config_module
     from app import database as database_module
-    from app.security import crypto as crypto_module
+    from app.agents import registry as agent_registry_module
     from app.security import jwt as jwt_module
-    from app.ssh import pool as ssh_pool_module
     from app.tailing import manager as tailing_manager_module
 
     config_module.get_settings.cache_clear()
     database_module.reset_engine_cache()
-    crypto_module.reset_key_cache()
     jwt_module.reset_secret_cache()
-    ssh_pool_module.reset_ssh_pool_for_tests()
+    agent_registry_module.reset_agent_registry_for_tests()
     tailing_manager_module.reset_tail_manager_for_tests()
 
     # The rate limiter's in-memory counters are process-wide (module-level

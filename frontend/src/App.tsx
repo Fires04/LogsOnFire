@@ -3,8 +3,8 @@ import { AuthProvider } from './lib/auth'
 import AuthGuard from './components/AuthGuard'
 import AppShell from './components/AppShell'
 import LoginPage from './routes/LoginPage'
-import HostsPage from './routes/HostsPage'
-import HostDetailPage from './routes/HostDetailPage'
+import AgentsPage from './routes/AgentsPage'
+import AgentDetailPage from './routes/AgentDetailPage'
 import DashboardsListPage from './routes/DashboardsListPage'
 import DashboardEditPage from './routes/DashboardEditPage'
 import DashboardViewPage from './routes/DashboardViewPage'
@@ -22,11 +22,11 @@ export default function App() {
           <Route path="/view/dashboard/:dashboardId" element={<DashboardViewPage />} />
 
           <Route element={<AppShell />}>
-            <Route path="/hosts" element={<HostsPage />} />
-            <Route path="/hosts/:hostId" element={<HostDetailPage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/agents/:agentId" element={<AgentDetailPage />} />
             <Route path="/dashboards" element={<DashboardsListPage />} />
             <Route path="/dashboards/:dashboardId/edit" element={<DashboardEditPage />} />
-            <Route path="/" element={<Navigate to="/hosts" replace />} />
+            <Route path="/" element={<Navigate to="/agents" replace />} />
           </Route>
         </Route>
 
