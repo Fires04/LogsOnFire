@@ -18,6 +18,7 @@ import {
 import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconTrash } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import { httpBase } from '../lib/serverOrigin'
+import CopyField from '../components/CopyField'
 import LogSourceForm from '../components/LogSourceForm'
 import LogSourceViewer from '../components/LogSourceViewer'
 import type { Agent, LogSource, LogSourceCreateInput, ResolveResponse } from '../types/models'
@@ -129,11 +130,14 @@ export default function AgentDetailPage() {
       </Card>
 
       {agent.server_version_mismatch && (
-        <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light">
-          This agent's version ({agent.agent_version}) doesn't match the server's — on this host, run:{' '}
-          <Text component="code" fz="sm">
-            curl -fsSL {httpBase()}/agent/upgrade.sh | sudo bash
-          </Text>
+        <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light" title="Agent needs an upgrade">
+          <Stack gap="xs">
+            <Text size="sm">
+              This agent's version ({agent.agent_version}) doesn't match the server's. Run this on the
+              agent's own host (SSH into it first):
+            </Text>
+            <CopyField value={`curl -fsSL ${httpBase()}/agent/upgrade.sh | sudo bash`} />
+          </Stack>
         </Alert>
       )}
 
