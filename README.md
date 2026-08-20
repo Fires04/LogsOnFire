@@ -183,16 +183,21 @@ for the regression test.
 
 ### Versioning
 
-The version shown in the UI (login screen, nav footer) and compared
-against each agent's self-reported version comes from git, not a
-hand-edited number: `<major of the nearest "vN" tag>.<commits since that
+The version shown in the UI (login screen, nav footer) comes from git, not
+a hand-edited number: `<major of the nearest "vN" tag>.<commits since that
 tag>+g<commit hash>` — e.g. tag `v1` + 7 commits = `1.7+ge1be41b`. The
-second number increments automatically on every commit; server and every
-agent built from the same commit get the exact same version, which is
-what makes the "this agent is out of date" check reliable without anyone
-remembering to bump anything.
+second number increments automatically on every commit.
 
-A major bump is the one part that's still a deliberate choice:
+**The agent's version is tracked independently of the server's**, using
+the same scheme but counting only commits that touch `agent/`/`agentcore/`.
+Agent code changes far less often than the backend/frontend do, so an
+unrelated server-side commit (a UI tweak, a backend bugfix) doesn't bump
+the agent's version — the "this agent is out of date" badge only lights
+up when there's an actual agent/agentcore change to install, not on every
+server deploy.
+
+A major bump is the one part that's still a deliberate choice, and it
+applies to both counters at once (they read the same tag):
 ```bash
 git tag v2 && git push origin v2
 ```

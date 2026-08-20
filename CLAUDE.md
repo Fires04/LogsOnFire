@@ -147,15 +147,28 @@ only ever asks the connected agent over `/ws/agent` and waits for a reply.
   a stale "live" status forever instead of a clear closed/disconnected
   state.
 
-- **Version is derived from git, not hand-bumped.** `Dockerfile`'s `gitinfo`
-  stage computes `<major from the nearest "vN" tag>.<commits since that
-  tag>+g<hash>` (e.g. tag `v1` + 7 commits = `1.7+ge1be41b`) and stamps
-  `backend`/`agentcore`/`agent`'s `pyproject.toml` with the identical value
-  at build time — overwriting whatever's checked in there, which is why
-  those files' own `version` lines don't matter and don't need editing.
-  The second number auto-increments on every commit; a major jump (`1.x` →
-  `2.0`) is a **deliberate, manual** `git tag vN && git push origin vN` —
-  nothing else triggers it. Tags are a single number (`v1`, `v2`, …), not
+- **Version is derived from git, not hand-bumped — and the agent's version
+  is tracked separately from the server's.** `Dockerfile`'s `gitinfo` stage
+  computes `<major from the nearest "vN" tag>.<commits since that
+  tag>+g<hash>` (e.g. tag `v1` + 7 commits = `1.7+ge1be41b`) — but it
+  computes this **twice**, once counting every commit (`/version.txt`, the
+  server's own version — `backend`'s `pyproject.toml`) and once counting
+  only commits that touch `agent/`/`agentcore/` (`/agent_version.txt` —
+  those two packages' `pyproject.toml`, plus dropped at
+  `app/static/agent/VERSION` for the server to read back). Both files
+  overwrite whatever's checked into those `pyproject.toml`s at build time,
+  which is why their own `version` lines don't matter and don't need
+  editing. **Don't merge these two counters back into one** — agent code
+  changes far less often than the backend/frontend do, so a same-repo
+  commit that only touches backend/frontend must not bump the agent's
+  version and make every already-current agent look out of date
+  (`app/core/version.py::get_expected_agent_version()` is what
+  `api/routes/agents.py`'s mismatch check compares an agent's self-reported
+  version against — never the server's own `get_server_version()`). The
+  second number in each scheme auto-increments on every relevant commit; a
+  major jump (`1.x` → `2.0`, shared by both counters since they read the
+  same tag) is a **deliberate, manual** `git tag vN && git push origin vN`
+  — nothing else triggers it. Tags are a single number (`v1`, `v2`, …), not
   `vX.Y` — the version format is two segments (`major.count`), not three.
   This exists because a hand-maintained semver number *not* changing between
   builds was a real bug once already: `pip install --upgrade` on a host
