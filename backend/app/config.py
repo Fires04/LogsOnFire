@@ -28,6 +28,12 @@ class Settings(BaseSettings):
 
     access_token_ttl_minutes: int = 15
     refresh_token_ttl_days: int = 7
+    # "Remember me" at login extends the refresh token (and therefore how
+    # long the browser can go without re-entering a password — access
+    # tokens stay short-lived either way and just get silently refreshed,
+    # see api/routes/auth.py's /refresh) out to this instead of the
+    # default above.
+    remember_me_ttl_days: int = 30
 
     # First-boot admin seed (only used if the users table is empty)
     admin_email: str = "admin@example.com"

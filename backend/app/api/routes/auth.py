@@ -43,8 +43,8 @@ async def login(
         )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
-    set_auth_cookies(response, user.id)
-    await audit_record(db, user_id=user.id, event_type="login")
+    set_auth_cookies(response, user.id, remember=payload.remember)
+    await audit_record(db, user_id=user.id, event_type="login", detail={"remember": payload.remember})
     return MeResponse(id=user.id, email=user.email, is_admin=user_is_admin(user))
 
 
@@ -74,7 +74,12 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
 
-    set_auth_cookies(response, user.id)
+    # Roll the same "remember me" choice forward rather than silently
+    # downgrading to the short-lived default on every refresh — it's
+    # encoded in the refresh token's own payload (set_auth_cookies), not
+    # tracked anywhere else.
+    remember = bool(payload.get("remember", False))
+    set_auth_cookies(response, user.id, remember=remember)
     return MeResponse(id=user.id, email=user.email, is_admin=user_is_admin(user))
 
 
