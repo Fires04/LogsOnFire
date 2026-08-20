@@ -22,12 +22,22 @@ CSRF_COOKIE = "csrf_token"
 CSRF_HEADER = "X-CSRF-Token"
 
 
-def set_auth_cookies(response: Response, user_id: str) -> None:
-    """Issue fresh access/refresh/csrf cookies for a logged-in user."""
+def set_auth_cookies(response: Response, user_id: str, *, remember: bool = False) -> None:
+    """Issue fresh access/refresh/csrf cookies for a logged-in user.
+
+    `remember` extends the refresh token (and therefore how long the
+    browser can go before needing a password again — access tokens stay
+    short-lived either way, see ACCESS_COOKIE's max_age below) out to
+    settings.remember_me_ttl_days. It's baked into the refresh token's own
+    payload (not just this cookie call) so /api/auth/refresh can keep
+    rolling the same longer lifetime forward each time it's used, instead
+    of silently downgrading back to the short default on the next refresh.
+    """
     settings = get_settings()
     secure = settings.is_production
+    refresh_ttl_days = settings.remember_me_ttl_days if remember else settings.refresh_token_ttl_days
     access_token = create_token(user_id, "access")
-    refresh_token = create_token(user_id, "refresh")
+    refresh_token = create_token(user_id, "refresh", extra={"remember": remember}, ttl_days=refresh_ttl_days)
     csrf_token = secrets.token_urlsafe(32)
 
     common = dict(
@@ -38,13 +48,13 @@ def set_auth_cookies(response: Response, user_id: str) -> None:
         path="/",
     )
     response.set_cookie(ACCESS_COOKIE, access_token, max_age=settings.access_token_ttl_minutes * 60, **common)
-    response.set_cookie(REFRESH_COOKIE, refresh_token, max_age=settings.refresh_token_ttl_days * 86400, **common)
+    response.set_cookie(REFRESH_COOKIE, refresh_token, max_age=refresh_ttl_days * 86400, **common)
     # CSRF cookie is intentionally NOT httponly — JS must be able to read it
     # to echo it back as a header (double-submit pattern).
     response.set_cookie(
         CSRF_COOKIE,
         csrf_token,
-        max_age=settings.refresh_token_ttl_days * 86400,
+        max_age=refresh_ttl_days * 86400,
         httponly=False,
         secure=secure,
         samesite="lax",

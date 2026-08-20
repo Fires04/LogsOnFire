@@ -8,23 +8,43 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# ---- Stage 2: build the agent/agentcore wheels the server will host for
+# ---- Stage 2: derive a build version from the current git commit — every
+# build gets a distinct version automatically, so the server<->agent
+# version-mismatch check (app/core/version.py) can never go stale from
+# someone forgetting to hand-bump a semver number (see CLAUDE.md — that
+# happened for real once already, before this existed). All three packages
+# built from this same commit (backend, agentcore, agent) get stamped with
+# the identical version below, which is exactly the property the mismatch
+# check needs: it fires precisely when an agent hasn't been reinstalled
+# since a newer commit was deployed to the server.
+FROM python:3.13-slim AS gitinfo
+WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+COPY .git ./.git
+# "0.0.0+g<hash>" is a valid PEP 440 local version segment (letters/digits/
+# periods only — no hyphens allowed there, unlike a git describe --dirty
+# suffix would produce).
+RUN echo -n "0.0.0+g$(git rev-parse --short=12 HEAD)" > /version.txt
+
+# ---- Stage 3: build the agent/agentcore wheels the server will host for
 # `agent/install.sh` to download onto monitored hosts. --no-deps: we only
 # want wheels for our own two packages here — their third-party
 # dependencies (websockets etc.) resolve from PyPI normally when
-# install.sh runs `pip install` on the target host. Wheel filenames must
-# carry a real PEP 440 version (a plain "-latest-" alias isn't a valid
-# wheel filename and pip/uv reject it), so a MANIFEST listing the real
-# built filenames ships alongside them — install.sh reads it rather than
-# hardcoding a version that would go stale on every version bump.
+# install.sh runs `pip install` on the target host. Wheel filenames carry
+# the git-derived version (see gitinfo above), so a MANIFEST listing the
+# real built filenames ships alongside them — install.sh reads it rather
+# than hardcoding a filename that would go stale on every build.
 FROM python:3.13-slim AS agent-build
 WORKDIR /build
+COPY --from=gitinfo /version.txt /version.txt
 COPY agentcore/ ./agentcore/
 COPY agent/ ./agent/
-RUN pip wheel --no-cache-dir --no-deps -w /out ./agentcore ./agent \
+RUN VERSION=$(cat /version.txt) \
+    && sed -i "s/^version = .*/version = \"${VERSION}\"/" agentcore/pyproject.toml agent/pyproject.toml \
+    && pip wheel --no-cache-dir --no-deps -w /out ./agentcore ./agent \
     && (cd /out && ls *.whl > MANIFEST)
 
-# ---- Stage 3: python runtime ----
+# ---- Stage 4: python runtime ----
 FROM python:3.13-slim AS runtime
 WORKDIR /app
 
@@ -34,8 +54,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends grep \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=gitinfo /version.txt /version.txt
 COPY backend/ ./
-RUN pip install --no-cache-dir .
+RUN sed -i "s/^version = .*/version = \"$(cat /version.txt)\"/" pyproject.toml \
+    && pip install --no-cache-dir .
 
 # Built frontend assets are served directly by FastAPI (app/main.py mounts
 # this directory) — no separate frontend server/container.

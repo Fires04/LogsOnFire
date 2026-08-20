@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { Alert, Button, Center, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Button, Center, Checkbox, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { ApiError } from '../lib/api'
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -25,7 +26,7 @@ export default function LoginPage() {
     setError(null)
     setBusy(true)
     try {
-      await login(email, password)
+      await login(email, password, remember)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Login failed')
     } finally {
@@ -68,6 +69,11 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
+          />
+          <Checkbox
+            label="Remember me on this device"
+            checked={remember}
+            onChange={(e) => setRemember(e.currentTarget.checked)}
           />
           {error && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
