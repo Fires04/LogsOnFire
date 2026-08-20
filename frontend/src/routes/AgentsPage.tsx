@@ -10,6 +10,7 @@ import {
   Group,
   Indicator,
   Menu,
+  Popover,
   Stack,
   Text,
   TextInput,
@@ -17,16 +18,17 @@ import {
   Tooltip,
 } from '@mantine/core'
 import {
-  IconAlertTriangle,
   IconDots,
   IconKey,
   IconPlus,
+  IconRefresh,
   IconSearch,
   IconTrash,
 } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
-import { copyToClipboard } from '../lib/clipboard'
+import { httpBase, wsBase } from '../lib/serverOrigin'
 import AgentForm from '../components/AgentForm'
+import CopyField from '../components/CopyField'
 import Modal from '../components/Modal'
 import type {
   Agent,
@@ -37,18 +39,6 @@ import type {
 } from '../types/models'
 
 dayjs.extend(relativeTime)
-
-/** This server's own WebSocket origin, derived from wherever the browser
- * currently is (localhost, a LAN hostname, a real domain behind a proxy —
- * all handled automatically) rather than asked for separately. */
-function wsBase(): string {
-  const isHttps = window.location.protocol === 'https:'
-  return `${isHttps ? 'wss' : 'ws'}://${window.location.host}`
-}
-
-function httpBase(): string {
-  return `${window.location.protocol}//${window.location.host}`
-}
 
 /** The manual fallback one-liner (README's Quick start) — has the token as
  * a plain CLI argument, so it lands in the target host's shell history and
@@ -62,35 +52,35 @@ function oneTimeInstallCommand(code: string): string {
   return `curl -fsSL ${httpBase()}/agent/install/${code} | sudo bash`
 }
 
-/** A code/copy-button row — copyToClipboard (not Mantine's CopyButton,
- * which has no fallback) so this also works over plain HTTP on a non-
- * localhost origin (e.g. http://pees:8000), where navigator.clipboard is
- * present but silently refuses to write — found by direct testing. */
-function CopyField({ value, mono = true }: { value: string; mono?: boolean }) {
-  const [copied, setCopied] = useState(false)
+function upgradeCommand(): string {
+  return `curl -fsSL ${httpBase()}/agent/upgrade.sh | sudo bash`
+}
+
+/** Click-to-reveal upgrade instructions for a version-mismatched agent —
+ * an icon rather than plain text/tooltip so there's an actual copy button,
+ * not just something to read and retype. */
+function UpgradeHint() {
   return (
-    <Group wrap="nowrap" gap="xs" align="flex-start">
-      <Text
-        component={mono ? 'code' : 'span'}
-        style={{ flex: 1, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
-        bg="var(--mantine-color-default-hover)"
-        p="xs"
-        fz="sm"
-      >
-        {value}
-      </Text>
-      <Button
-        size="xs"
-        color={copied ? 'teal' : 'flame'}
-        onClick={async () => {
-          const ok = await copyToClipboard(value)
-          setCopied(ok)
-          if (ok) setTimeout(() => setCopied(false), 2000)
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </Button>
-    </Group>
+    <Popover withinPortal position="bottom-end" shadow="md">
+      <Popover.Target>
+        <Tooltip label="Version doesn't match the server — click to upgrade">
+          <ActionIcon size="sm" variant="light" color="orange" onClick={(e) => e.stopPropagation()}>
+            <IconRefresh size={13} />
+          </ActionIcon>
+        </Tooltip>
+      </Popover.Target>
+      <Popover.Dropdown maw={360}>
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>
+            Agent needs an upgrade
+          </Text>
+          <Text size="xs" c="dimmed">
+            Run this on the agent's own host (SSH into it first):
+          </Text>
+          <CopyField value={upgradeCommand()} />
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
   )
 }
 
@@ -261,11 +251,12 @@ export default function AgentsPage() {
             render: (agent) =>
               agent.agent_version ? (
                 agent.server_version_mismatch ? (
-                  <Tooltip label="Doesn't match the server's version — pip install --upgrade --force-reinstall on this host, then restart the service.">
-                    <Badge variant="light" color="orange" rightSection={<IconAlertTriangle size={11} />}>
+                  <Group gap={6} wrap="nowrap">
+                    <Badge variant="light" color="orange">
                       {agent.agent_version}
                     </Badge>
-                  </Tooltip>
+                    <UpgradeHint />
+                  </Group>
                 ) : (
                   <Badge variant="light">{agent.agent_version}</Badge>
                 )
