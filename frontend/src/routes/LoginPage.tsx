@@ -4,9 +4,11 @@ import { Alert, Button, Center, Paper, PasswordInput, Stack, Text, TextInput, Ti
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { ApiError } from '../lib/api'
+import { useServerVersion } from '../lib/serverVersion'
 
 export default function LoginPage() {
   const { user, login } = useAuth()
+  const serverVersion = useServerVersion()
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -76,6 +78,11 @@ export default function LoginPage() {
             Sign in
           </Button>
         </Stack>
+        {serverVersion && (
+          <Text c="dimmed" size="xs" ta="center" mt="md">
+            v{serverVersion}
+          </Text>
+        )}
       </Paper>
     </Center>
   )

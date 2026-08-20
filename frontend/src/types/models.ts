@@ -5,7 +5,13 @@ export interface Agent {
   last_seen_at: string | null
   last_heartbeat_rtt_ms: number | null
   agent_version: string | null
+  server_version_mismatch: boolean
   token_prefix: string
+}
+
+export interface HealthInfo {
+  status: string
+  version: string
 }
 
 export interface AgentCreateInput {

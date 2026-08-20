@@ -10,10 +10,25 @@ from __future__ import annotations
 import os
 import tomllib
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path("/etc/logsonfire-agent/config.toml")
-AGENT_VERSION = "0.1.0"
+
+
+def _installed_agent_version() -> str:
+    # Read from the installed wheel's own metadata (agent/pyproject.toml's
+    # `version`) rather than a second hardcoded constant here that could
+    # drift from it — this value is what the server compares against its
+    # own version to flag an out-of-date agent (see CLAUDE.md's
+    # --force-reinstall gotcha), so it has to be trustworthy.
+    try:
+        return version("logsonfire-agent")
+    except PackageNotFoundError:
+        return "0.0.0-dev"
+
+
+AGENT_VERSION = _installed_agent_version()
 
 
 @dataclass

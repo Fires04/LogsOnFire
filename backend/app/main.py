@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.core.csrf import CsrfMiddleware
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
+from app.core.version import get_server_version
 
 logger = logging.getLogger("logsonfire")
 
@@ -67,7 +68,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"status": "ok"}
+        # Unauthenticated on purpose — the login screen shows the version
+        # before any session exists, same reasoning as /api/health itself
+        # needing to work pre-auth.
+        return {"status": "ok", "version": get_server_version()}
 
     if STATIC_DIR.is_dir():
         assets_dir = STATIC_DIR / "assets"

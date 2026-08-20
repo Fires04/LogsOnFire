@@ -17,6 +17,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import {
+  IconAlertTriangle,
   IconDots,
   IconKey,
   IconPlus,
@@ -257,7 +258,20 @@ export default function AgentsPage() {
           {
             accessor: 'agent_version',
             title: 'Version',
-            render: (agent) => (agent.agent_version ? <Badge variant="light">{agent.agent_version}</Badge> : <Text c="dimmed">—</Text>),
+            render: (agent) =>
+              agent.agent_version ? (
+                agent.server_version_mismatch ? (
+                  <Tooltip label="Doesn't match the server's version — pip install --upgrade --force-reinstall on this host, then restart the service.">
+                    <Badge variant="light" color="orange" rightSection={<IconAlertTriangle size={11} />}>
+                      {agent.agent_version}
+                    </Badge>
+                  </Tooltip>
+                ) : (
+                  <Badge variant="light">{agent.agent_version}</Badge>
+                )
+              ) : (
+                <Text c="dimmed">—</Text>
+              ),
           },
           {
             accessor: 'actions',

@@ -10,6 +10,7 @@ from app.agents.registry import AgentOfflineError, AgentTimeoutError, get_agent_
 from app.agents.service import enroll_agent, reissue_token as reissue_token_service
 from app.core.audit import record as audit_record
 from app.core.permissions import AGENT_READ, AGENT_WRITE
+from app.core.version import get_server_version
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
@@ -28,6 +29,7 @@ def _to_out(agent: Agent) -> AgentOut:
         last_seen_at=agent.last_seen_at,
         last_heartbeat_rtt_ms=agent.last_heartbeat_rtt_ms,
         agent_version=agent.agent_version,
+        server_version_mismatch=agent.agent_version is not None and agent.agent_version != get_server_version(),
         token_prefix=agent.token_prefix,
     )
 

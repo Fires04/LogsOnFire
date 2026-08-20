@@ -12,6 +12,7 @@ import {
 import { IconLogout, IconMoon, IconSun } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { api } from '../lib/api'
+import { useServerVersion } from '../lib/serverVersion'
 import type { Agent } from '../types/models'
 
 const AGENT_SUMMARY_POLL_MS = 15000
@@ -20,6 +21,7 @@ export default function AppShell() {
   const { user, logout } = useAuth()
   const { colorScheme, toggleColorScheme } = useMantineColorScheme()
   const [agentSummary, setAgentSummary] = useState<{ online: number; total: number } | null>(null)
+  const serverVersion = useServerVersion()
   const location = useLocation()
 
   useEffect(() => {
@@ -71,8 +73,17 @@ export default function AppShell() {
       </MantineAppShell.Header>
 
       <MantineAppShell.Navbar p="sm">
-        <NavLink component={Link} to="/agents" label="Agents" active={location.pathname.startsWith('/agents')} />
-        <NavLink component={Link} to="/dashboards" label="Dashboards" active={location.pathname.startsWith('/dashboards')} />
+        <MantineAppShell.Section grow>
+          <NavLink component={Link} to="/agents" label="Agents" active={location.pathname.startsWith('/agents')} />
+          <NavLink component={Link} to="/dashboards" label="Dashboards" active={location.pathname.startsWith('/dashboards')} />
+        </MantineAppShell.Section>
+        {serverVersion && (
+          <MantineAppShell.Section>
+            <Text c="dimmed" size="xs" ta="center" py="xs">
+              v{serverVersion}
+            </Text>
+          </MantineAppShell.Section>
+        )}
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main>
