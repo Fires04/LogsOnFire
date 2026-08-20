@@ -10,7 +10,7 @@ from app.agents.registry import AgentOfflineError, AgentTimeoutError, get_agent_
 from app.agents.service import enroll_agent, reissue_token as reissue_token_service
 from app.core.audit import record as audit_record
 from app.core.permissions import AGENT_READ, AGENT_WRITE
-from app.core.version import get_server_version
+from app.core.version import get_expected_agent_version
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 def _to_out(agent: Agent) -> AgentOut:
+    expected = get_expected_agent_version()
     return AgentOut(
         id=agent.id,
         name=agent.name,
@@ -29,7 +30,9 @@ def _to_out(agent: Agent) -> AgentOut:
         last_seen_at=agent.last_seen_at,
         last_heartbeat_rtt_ms=agent.last_heartbeat_rtt_ms,
         agent_version=agent.agent_version,
-        server_version_mismatch=agent.agent_version is not None and agent.agent_version != get_server_version(),
+        server_version_mismatch=(
+            agent.agent_version is not None and expected is not None and agent.agent_version != expected
+        ),
         token_prefix=agent.token_prefix,
     )
 
