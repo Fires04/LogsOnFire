@@ -14,6 +14,7 @@ import stat
 from collections.abc import AsyncIterator
 
 from logsonfire_agentcore.base import MAX_RESOLVED_FILES, DirEntry, LogProvider, LogSourceSpec, ResolvedFile
+from logsonfire_agentcore.docker import docker_container_from_path, docker_logs_args, make_docker_path
 from logsonfire_agentcore.journal import journal_access_warning, journal_unit_from_path, journalctl_args, make_journal_path
 from logsonfire_agentcore.resolvers.glob_resolver import expand_local_glob
 from logsonfire_agentcore.resolvers.regex_resolver import resolve_by_regex
@@ -106,6 +107,76 @@ async def _journal_read_tail_local(unit: str, n_lines: int) -> list[str]:
     return lines
 
 
+async def _docker_access_check(container: str) -> str | None:
+    """Returns a warning string if something's off (docker not installed,
+    daemon unreachable/no permission, or the named container doesn't
+    currently exist), else None. `docker inspect` covers both running and
+    stopped containers, so a stopped-but-real container isn't reported as
+    missing."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "inspect", "--format", "{{.State.Status}}", container,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return "docker is not installed on this host"
+    _, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return None
+    err = stderr.decode("utf-8", "replace").strip().lower()
+    if "permission denied" in err or "dial unix" in err or "connect:" in err:
+        return (
+            "Could not reach the Docker daemon — the agent's user is probably not in the "
+            "'docker' group. Add it with: usermod -aG docker logsonfire-agent "
+            "(then: systemctl restart logsonfire-agent)."
+        )
+    return f"No container named '{container}' found (checked both running and stopped containers)."
+
+
+async def _docker_read_tail_local(container: str, n_lines: int) -> list[str]:
+    args = docker_logs_args(container, follow=False, n_lines=n_lines)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("docker is not installed on this host") from exc
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"docker logs failed: {stdout.decode('utf-8', 'replace').strip()}")
+    lines = stdout.decode("utf-8", errors="replace").split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    return lines
+
+
+async def _docker_tail_local(container: str) -> AsyncIterator[str]:
+    args = docker_logs_args(container, follow=True, n_lines=None)
+    # Unlike journalctl, `docker logs -f` streams from the daemon's API as
+    # received rather than through a buffered file read — not observed to
+    # need stdbuf-style forcing during testing, but noted here in case a
+    # future regression turns up the same class of "live but not really
+    # live" bug journal mode had.
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("docker is not installed on this host") from exc
+    try:
+        assert proc.stdout is not None
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            yield raw.decode("utf-8", errors="replace").rstrip("\n")
+    finally:
+        if proc.returncode is None:
+            proc.terminate()
+            with contextlib.suppress(ProcessLookupError):
+                await proc.wait()
+
+
 async def _journal_tail_local(unit: str) -> AsyncIterator[str]:
     args = journalctl_args(unit, follow=True, n_lines=None)
     # journalctl fully block-buffers its own stdout when it isn't a tty
@@ -143,6 +214,14 @@ class LocalFileProvider(LogProvider):
             warning = await asyncio.to_thread(_local_journal_access_warning)
             return [ResolvedFile(make_journal_path(spec.path_or_pattern), warning=warning)], False
 
+        if spec.mode == "docker":
+            # Unlike journal, container names are typo-prone and dynamic
+            # (removed/recreated often), so this actually checks the
+            # container exists and the daemon is reachable, surfacing
+            # either as a warning rather than silently returning nothing.
+            warning = await _docker_access_check(spec.path_or_pattern)
+            return [ResolvedFile(make_docker_path(spec.path_or_pattern), warning=warning)], False
+
         if spec.mode == "exact_path":
             size, mtime = await _local_stat_file(spec.path_or_pattern)
             if size is None:
@@ -163,6 +242,9 @@ class LocalFileProvider(LogProvider):
         unit = journal_unit_from_path(path)
         if unit is not None:
             return await _journal_read_tail_local(unit, n_lines)
+        container = docker_container_from_path(path)
+        if container is not None:
+            return await _docker_read_tail_local(container, n_lines)
         return await asyncio.to_thread(_read_last_lines_sync, path, n_lines)
 
     async def list_directory(self, path: str) -> tuple[list[DirEntry], bool]:
@@ -204,6 +286,12 @@ class LocalFileProvider(LogProvider):
         unit = journal_unit_from_path(path)
         if unit is not None:
             async for line in _journal_tail_local(unit):
+                yield line
+            return
+
+        container = docker_container_from_path(path)
+        if container is not None:
+            async for line in _docker_tail_local(container):
                 yield line
             return
 

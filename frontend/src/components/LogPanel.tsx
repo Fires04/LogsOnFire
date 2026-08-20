@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { Checkbox, Group, Indicator, Text, TextInput, Tooltip } from '@mantine/core'
-import { IconSearch } from '@tabler/icons-react'
+import { ActionIcon, Checkbox, Group, Indicator, Menu, Text, TextInput, Tooltip } from '@mantine/core'
+import { IconBookmark, IconDeviceFloppy, IconSearch, IconX } from '@tabler/icons-react'
 import { logWsClient, type FilteredLine, type LogEvent } from '../lib/wsClient'
 import { highlightLogLine } from '../lib/logHighlight'
+import { useSavedFilters } from '../lib/savedFilters'
 
 interface DisplayLine {
   key: number
@@ -55,6 +56,7 @@ export default function LogPanel({ logSourceId, resolvedPath, title }: Props) {
   const [filterError, setFilterError] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [colorize, setColorize] = useState(() => localStorage.getItem(COLORIZE_STORAGE_KEY) !== 'off')
+  const { filters: savedFilters, save: saveFilter, remove: removeFilter } = useSavedFilters()
 
   const subIdRef = useRef<string | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -116,18 +118,40 @@ export default function LogPanel({ logSourceId, resolvedPath, title }: Props) {
     setAutoScroll(atBottom)
   }
 
+  function pushFilterToServer(value: string) {
+    if (!subIdRef.current) return
+    if (value.trim()) {
+      logWsClient.setFilter(subIdRef.current, value.trim())
+    } else {
+      setFilterError(null)
+      logWsClient.clearFilter(subIdRef.current)
+    }
+  }
+
   function applyFilter(value: string) {
     setFilterInput(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      if (!subIdRef.current) return
-      if (value.trim()) {
-        logWsClient.setFilter(subIdRef.current, value.trim())
-      } else {
-        setFilterError(null)
-        logWsClient.clearFilter(subIdRef.current)
-      }
-    }, FILTER_DEBOUNCE_MS)
+    debounceRef.current = setTimeout(() => pushFilterToServer(value), FILTER_DEBOUNCE_MS)
+  }
+
+  /** Picking a saved filter (or clearing) should take effect immediately,
+   * not wait out the debounce meant for "still typing". */
+  function applySavedFilter(expression: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    setFilterInput(expression)
+    pushFilterToServer(expression)
+  }
+
+  async function handleSaveCurrentFilter() {
+    const expression = filterInput.trim()
+    if (!expression) return
+    const label = window.prompt('Save this filter as:', expression)
+    if (!label || !label.trim()) return
+    try {
+      await saveFilter({ label: label.trim(), expression })
+    } catch {
+      // best-effort convenience feature — a failed save just means "try again", not worth a modal
+    }
   }
 
   function toggleColorize(value: boolean) {
@@ -158,6 +182,56 @@ export default function LogPanel({ logSourceId, resolvedPath, title }: Props) {
           style={{ flex: 1, fontFamily: 'var(--mono)' }}
           styles={{ input: { fontFamily: 'var(--mono)' } }}
         />
+        <Tooltip label="Save current filter">
+          <ActionIcon
+            size="sm"
+            variant="subtle"
+            disabled={!filterInput.trim()}
+            onClick={handleSaveCurrentFilter}
+          >
+            <IconDeviceFloppy size={14} />
+          </ActionIcon>
+        </Tooltip>
+        <Menu withinPortal position="bottom-end" shadow="md">
+          <Menu.Target>
+            <Tooltip label="Saved filters">
+              <ActionIcon size="sm" variant="subtle">
+                <IconBookmark size={14} />
+              </ActionIcon>
+            </Tooltip>
+          </Menu.Target>
+          <Menu.Dropdown miw={220}>
+            {savedFilters.length === 0 ? (
+              <Menu.Item disabled>No saved filters yet</Menu.Item>
+            ) : (
+              savedFilters.map((f) => (
+                <Menu.Item key={f.id} component="div" style={{ cursor: 'pointer' }} onClick={() => applySavedFilter(f.expression)}>
+                  <Group justify="space-between" wrap="nowrap" gap="xs">
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" truncate>
+                        {f.label}
+                      </Text>
+                      <Text size="xs" c="dimmed" ff="var(--mono)" truncate>
+                        {f.expression}
+                      </Text>
+                    </div>
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
+                      color="red"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`Delete saved filter "${f.label}"?`)) removeFilter(f.id)
+                      }}
+                    >
+                      <IconX size={12} />
+                    </ActionIcon>
+                  </Group>
+                </Menu.Item>
+              ))
+            )}
+          </Menu.Dropdown>
+        </Menu>
         <Checkbox
           size="xs"
           label="colors"

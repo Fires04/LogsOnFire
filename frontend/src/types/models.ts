@@ -32,7 +32,7 @@ export interface InstallLinkResult {
   expires_in_seconds: number
 }
 
-export type LogSourceMode = 'exact_path' | 'glob' | 'regex' | 'journal'
+export type LogSourceMode = 'exact_path' | 'glob' | 'regex' | 'journal' | 'docker'
 
 export interface LogSource {
   id: string
@@ -95,6 +95,17 @@ export interface Me {
   id: string
   email: string
   is_admin: boolean
+}
+
+export interface SavedFilter {
+  id: string
+  label: string
+  expression: string
+}
+
+export interface SavedFilterCreateInput {
+  label: string
+  expression: string
 }
 
 export interface DirEntry {

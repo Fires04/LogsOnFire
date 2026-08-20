@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { Alert, Button, Center, Paper, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core'
-import { IconAlertCircle, IconFlame } from '@tabler/icons-react'
+import { Alert, Button, Center, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { ApiError } from '../lib/api'
 
@@ -35,18 +35,25 @@ export default function LoginPage() {
     <Center mih="100vh" p="md">
       <Paper component="form" onSubmit={onSubmit} withBorder shadow="md" p="xl" radius="md" w="100%" maw={380}>
         <Stack align="center" gap={4} mb="md">
-          <ThemeIcon size={56} radius="xl" variant="light" color="flame">
-            <IconFlame size={32} />
-          </ThemeIcon>
+          <img src="/logo.png" alt="" width={72} height={72} style={{ display: 'block', marginBottom: 4 }} />
           <Title order={2}>Logs On Fire</Title>
           <Text c="dimmed" size="sm">
             Sign in to manage agents and logs.
           </Text>
         </Stack>
         <Stack gap="sm">
+          {/* name/autoComplete: password managers (Passbolt, Bitwarden, the
+              browser's own) identify fields — and, critically, dispatch the
+              synthetic input event React's controlled value actually
+              picks up — largely via these attributes. Without them,
+              autofill was seen to intermittently "fill" the input visually
+              without ever firing onChange, so email/password stayed empty
+              in state until the user typed something themselves. */}
           <TextInput
             label="Email"
             type="email"
+            name="email"
+            autoComplete="username"
             required
             autoFocus
             value={email}
@@ -54,6 +61,8 @@ export default function LoginPage() {
           />
           <PasswordInput
             label="Password"
+            name="password"
+            autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
