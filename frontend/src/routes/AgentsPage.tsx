@@ -31,6 +31,20 @@ import type { Agent, AgentCreateInput, AgentCreateResult, AgentUpdateInput } fro
 
 dayjs.extend(relativeTime)
 
+/** The one-liner from README's Quick start, pre-filled with this server's
+ * own origin (from the browser, so it's correct whether you're on
+ * localhost, a LAN hostname, or a real domain behind a proxy) and the
+ * freshly generated token — meant to be pasted straight into an SSH
+ * session on the host being enrolled. --server needs ws(s)://, but the
+ * script itself is fetched over http(s):// — same origin, different
+ * scheme, see agent/install.sh's own scheme-derivation comment. */
+function installCommand(token: string): string {
+  const isHttps = window.location.protocol === 'https:'
+  const httpBase = `${window.location.protocol}//${window.location.host}`
+  const wsBase = `${isHttps ? 'wss' : 'ws'}://${window.location.host}`
+  return `curl -fsSL ${httpBase}/agent/install.sh | sudo bash -s -- --server ${wsBase} --token ${token}`
+}
+
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
@@ -210,19 +224,26 @@ export default function AgentsPage() {
       )}
 
       {revealedToken && (
-        <Modal onClose={() => setRevealedToken(null)} title={`Token for "${revealedToken.agent.name}"`}>
+        <Modal onClose={() => setRevealedToken(null)} title={`Token for "${revealedToken.agent.name}"`} wide>
           <Stack gap="sm">
             <Text size="sm" c="dimmed">
-              Shown once — copy it now and paste it into the agent's config
-              (<code>LOGSONFIRE_AGENT_TOKEN</code> or <code>token</code> in{' '}
-              <code>/etc/logsonfire-agent/config.toml</code>). It cannot be
-              recovered later, only reissued.
+              Shown once — it cannot be recovered later, only reissued.
             </Text>
-            <Group wrap="nowrap" gap="xs">
-              <Text component="code" style={{ flex: 1, wordBreak: 'break-all' }} bg="var(--mantine-color-default-hover)" p="xs" fz="sm">
-                {revealedToken.token}
+
+            <Text size="sm" fw={600}>
+              Paste directly into an SSH session on the host to monitor:
+            </Text>
+            <Group wrap="nowrap" gap="xs" align="flex-start">
+              <Text
+                component="code"
+                style={{ flex: 1, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
+                bg="var(--mantine-color-default-hover)"
+                p="xs"
+                fz="sm"
+              >
+                {installCommand(revealedToken.token)}
               </Text>
-              <CopyButton value={revealedToken.token}>
+              <CopyButton value={installCommand(revealedToken.token)}>
                 {({ copied, copy }) => (
                   <Button onClick={copy} color={copied ? 'teal' : 'flame'} size="xs">
                     {copied ? 'Copied' : 'Copy'}
@@ -230,6 +251,23 @@ export default function AgentsPage() {
                 )}
               </CopyButton>
             </Group>
+
+            <Text size="sm" c="dimmed" mt="xs">
+              Or just the token, e.g. to edit <code>/etc/logsonfire-agent/config.toml</code> by hand:
+            </Text>
+            <Group wrap="nowrap" gap="xs">
+              <Text component="code" style={{ flex: 1, wordBreak: 'break-all' }} bg="var(--mantine-color-default-hover)" p="xs" fz="sm">
+                {revealedToken.token}
+              </Text>
+              <CopyButton value={revealedToken.token}>
+                {({ copied, copy }) => (
+                  <Button onClick={copy} color={copied ? 'teal' : 'flame'} size="xs" variant="default">
+                    {copied ? 'Copied' : 'Copy'}
+                  </Button>
+                )}
+              </CopyButton>
+            </Group>
+
             <Button onClick={() => setRevealedToken(null)} variant="default">
               I've copied it
             </Button>
