@@ -204,6 +204,59 @@ async def _journal_tail_local(unit: str) -> AsyncIterator[str]:
                 await proc.wait()
 
 
+async def _list_journal_units_local() -> list[str]:
+    """Known systemd service units on this host (loaded at some point, not
+    just currently running) — powers a picker in the log source form so a
+    unit name doesn't have to be typed from memory. `list-units --all`
+    without `--state` still only shows units systemd has loaded at least
+    once this boot; that's the same set journalctl can meaningfully filter
+    on, so it's the right list to offer."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "list-units", "--type=service", "--all", "--no-legend", "--no-pager", "--plain",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("systemctl is not available on this host") from exc
+    stdout, stderr = await proc.communicate()
+    # returncode 1 just means "some listed units are inactive/failed" here,
+    # not a real failure — systemctl still printed a valid unit list.
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"systemctl list-units failed: {stderr.decode('utf-8', 'replace').strip()}")
+    units: list[str] = []
+    for line in stdout.decode("utf-8", errors="replace").splitlines():
+        name = line.split(None, 1)[0].strip() if line.strip() else ""
+        if name.endswith(".service"):
+            units.append(name)
+    return sorted(set(units))
+
+
+async def _list_docker_containers_local() -> list[str]:
+    """Container names (running and stopped) — same reasoning as journal
+    units above, and the same "permission denied" case surfaces as a
+    RuntimeError with a message pointing at the docker group, matching
+    _docker_access_check's wording."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a", "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("docker is not installed on this host") from exc
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", "replace").strip().lower()
+        if "permission denied" in err or "dial unix" in err or "connect:" in err:
+            raise RuntimeError(
+                "Could not reach the Docker daemon — the agent's user is probably not in the "
+                "'docker' group. Add it with: usermod -aG docker logsonfire-agent "
+                "(then: systemctl restart logsonfire-agent)."
+            )
+        raise RuntimeError(f"docker ps failed: {stderr.decode('utf-8', 'replace').strip()}")
+    names = [n.strip() for n in stdout.decode("utf-8", errors="replace").splitlines() if n.strip()]
+    return sorted(set(names))
+
+
 class LocalFileProvider(LogProvider):
     async def resolve_sources(self, spec: LogSourceSpec) -> tuple[list[ResolvedFile], bool]:
         if spec.mode == "journal":
@@ -281,6 +334,12 @@ class LocalFileProvider(LogProvider):
 
     async def default_browse_path(self) -> str:
         return os.path.expanduser("~") or "/"
+
+    async def list_journal_units(self) -> list[str]:
+        return await _list_journal_units_local()
+
+    async def list_docker_containers(self) -> list[str]:
+        return await _list_docker_containers_local()
 
     async def tail(self, path: str) -> AsyncIterator[str]:
         unit = journal_unit_from_path(path)

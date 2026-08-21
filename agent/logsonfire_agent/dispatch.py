@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import posixpath
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -26,6 +27,15 @@ SendFn = Callable[[dict], Awaitable[None]]
 # default 20000) fed by the tail_line stream after this; this first batch
 # just needs to be "enough to not look empty", not the full history.
 BACKFILL_LINES = 200
+
+# Written by install.sh (root-owned, mode 750) alongside a matching
+# sudoers(5) NOPASSWD entry naming this exact path with no arguments — the
+# agent process itself runs as the unprivileged 'logsonfire-agent' user and
+# can neither pip-install into system site-packages nor restart its own
+# systemd unit, so a remote "update now" has to go through this narrow,
+# fixed-path escalation rather than a broad sudo grant. Hosts enrolled
+# before this feature existed won't have it yet — see _handle_self_update.
+SELF_UPDATE_SCRIPT = "/usr/local/bin/logsonfire-agent-self-update"
 
 
 class Dispatcher:
@@ -44,6 +54,12 @@ class Dispatcher:
             await self._handle_start_tail(message)
         elif msg_type == "stop_tail":
             await self._handle_stop_tail(message)
+        elif msg_type == "list_units":
+            await self._handle_list_units(message)
+        elif msg_type == "list_containers":
+            await self._handle_list_containers(message)
+        elif msg_type == "self_update":
+            await self._handle_self_update(message)
         elif msg_type == "ping":
             await self._send({"type": "pong"})
         else:
@@ -121,6 +137,53 @@ class Dispatcher:
                 "truncated": truncated,
             }
         )
+
+    async def _handle_list_units(self, message: dict) -> None:
+        req_id = message.get("req_id")
+        try:
+            units = await self._provider.list_journal_units()
+        except Exception as exc:  # noqa: BLE001 - reported to the server, not a crash
+            await self._send({"type": "list_units_result", "req_id": req_id, "units": [], "error": str(exc)})
+            return
+        await self._send({"type": "list_units_result", "req_id": req_id, "units": units})
+
+    async def _handle_list_containers(self, message: dict) -> None:
+        req_id = message.get("req_id")
+        try:
+            containers = await self._provider.list_docker_containers()
+        except Exception as exc:  # noqa: BLE001
+            await self._send({"type": "list_containers_result", "req_id": req_id, "containers": [], "error": str(exc)})
+            return
+        await self._send({"type": "list_containers_result", "req_id": req_id, "containers": containers})
+
+    async def _handle_self_update(self, message: dict) -> None:
+        """Runs the equivalent of an operator SSH-ing in and re-running
+        upgrade.sh by hand — see SELF_UPDATE_SCRIPT's docstring for why this
+        needs a narrow sudo escalation rather than running as this process's
+        own (unprivileged) user. Fire-and-forget past the initial ack: the
+        upgrade script's own `systemctl restart` (run by upgrade.sh, same as
+        a manual upgrade) is very likely to kill this very process, so there
+        is no "it finished" message to wait for here — the fresh process's
+        next `hello` (with a bumped agent_version) is the real confirmation,
+        already surfaced via the existing agent-version-mismatch UI."""
+        req_id = message.get("req_id")
+        if not os.path.exists(SELF_UPDATE_SCRIPT):
+            await self._send(
+                {
+                    "type": "self_update_result", "req_id": req_id, "started": False,
+                    "error": "Remote update isn't set up on this host yet — re-run install.sh once to enable it.",
+                }
+            )
+            return
+        await self._send({"type": "self_update_result", "req_id": req_id, "started": True})
+        try:
+            await asyncio.create_subprocess_exec(
+                "sudo", "-n", SELF_UPDATE_SCRIPT,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception:  # noqa: BLE001 - already acked "started"; a missing reconnect is the real signal
+            logger.exception("failed to launch self-update")
 
     async def _handle_start_tail(self, message: dict) -> None:
         req_id = message.get("req_id")

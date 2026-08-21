@@ -7,15 +7,18 @@ from pydantic import BaseModel, Field
 
 class AgentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    notes: str | None = Field(default=None, max_length=10000)
 
 
 class AgentUpdate(BaseModel):
     name: str | None = None
+    notes: str | None = None
 
 
 class AgentOut(BaseModel):
     id: str
     name: str
+    notes: str | None
     online: bool
     last_seen_at: datetime | None
     last_heartbeat_rtt_ms: int | None
@@ -57,3 +60,14 @@ class InstallLinkCreate(BaseModel):
 class InstallLinkOut(BaseModel):
     code: str
     expires_in_seconds: int
+
+
+class TriggerUpdateOut(BaseModel):
+    """started=True means the agent acknowledged and kicked off the
+    upgrade — it will very likely disconnect and reconnect moments later
+    as its own process gets restarted; a bumped agent_version on reconnect
+    is the real confirmation, not this response. started=False + error
+    covers both "agent offline/timed out" and "host was enrolled before
+    remote update existed, needs install.sh re-run once"."""
+    started: bool
+    error: str | None = None

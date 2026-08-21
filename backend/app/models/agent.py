@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -35,6 +35,12 @@ class Agent(UUIDPkMixin, TimestampMixin, Base):
     agent_version: Mapped[str | None] = mapped_column(String(50), nullable=True)  # self-reported at "hello"
 
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Free-text — "which rack/VM/role is this", not structured/filterable.
+    # A real multi-tag system (own table, filter-by-tag UI) is a bigger
+    # feature than what's needed yet; this covers the actual ask ("how do I
+    # tell my agents apart") far more cheaply.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     log_sources: Mapped[list["LogSource"]] = relationship(  # noqa: F821
         back_populates="agent", cascade="all, delete-orphan"

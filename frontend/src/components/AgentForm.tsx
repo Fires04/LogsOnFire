@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Button, Group, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Button, Group, Paper, Stack, Text, Textarea, TextInput, Title } from '@mantine/core'
 import type { Agent, AgentCreateInput, AgentUpdateInput } from '../types/models'
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
 export default function AgentForm({ editingAgent, onSubmit, onCancel }: Props) {
   const isEdit = !!editingAgent
   const [name, setName] = useState(editingAgent?.name ?? '')
+  const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,8 +23,11 @@ export default function AgentForm({ editingAgent, onSubmit, onCancel }: Props) {
     setError(null)
     setBusy(true)
     try {
-      await onSubmit({ name })
-      if (!isEdit) setName('')
+      await onSubmit(isEdit ? { name } : { name, notes: notes.trim() || undefined })
+      if (!isEdit) {
+        setName('')
+        setNotes('')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'rename agent' : 'create agent'}`)
     } finally {
@@ -50,6 +54,16 @@ export default function AgentForm({ editingAgent, onSubmit, onCancel }: Props) {
           placeholder="e.g. web-01"
           autoFocus
         />
+        {!isEdit && (
+          <Textarea
+            label="Notes"
+            description="Optional — rack/VM/role, anything that helps you tell agents apart later"
+            value={notes}
+            onChange={(e) => setNotes(e.currentTarget.value)}
+            autosize
+            minRows={2}
+          />
+        )}
         {error && (
           <Text c="red" size="sm">
             {error}

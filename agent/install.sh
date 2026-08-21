@@ -161,6 +161,40 @@ install -m 644 "$(dirname "$0")/logsonfire-agent.service" "$SERVICE_TEMPLATE" 2>
 sed "s|^ExecStart=.*|ExecStart=${AGENT_BIN}|" "$SERVICE_TEMPLATE" > /etc/systemd/system/logsonfire-agent.service
 chmod 644 /etc/systemd/system/logsonfire-agent.service
 
+# Remote "update now" support: a small root-owned wrapper the agent's own
+# unprivileged user can invoke via a narrowly-scoped sudo rule (nothing
+# else) when the server sends a self_update message over /ws/agent — this
+# gets the "SSH in and re-run the install/upgrade" experience without
+# actually needing SSH access. Re-derives server_url from the live
+# config.toml (not this install run's $SERVER_URL) so it stays correct
+# even if the config changes later. visudo -cf validates the rule before
+# it's installed — a malformed sudoers file can lock out sudo entirely,
+# so this fails soft (remote update just won't be available) rather than
+# risking that.
+cat > /usr/local/bin/logsonfire-agent-self-update <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SERVER_URL=$(grep -oP '(?<=^server_url = ")[^"]*' /etc/logsonfire-agent/config.toml)
+case "$SERVER_URL" in
+  wss://*) DOWNLOAD_URL="https://${SERVER_URL#wss://}" ;;
+  ws://*)  DOWNLOAD_URL="http://${SERVER_URL#ws://}" ;;
+  *) echo "unrecognized server_url scheme in config.toml" >&2; exit 1 ;;
+esac
+curl -fsSL "${DOWNLOAD_URL%/}/agent/upgrade.sh" | bash
+SCRIPT
+chmod 750 /usr/local/bin/logsonfire-agent-self-update
+chown root:root /usr/local/bin/logsonfire-agent-self-update
+
+SUDOERS_FILE=$(mktemp)
+echo "logsonfire-agent ALL=(root) NOPASSWD: /usr/local/bin/logsonfire-agent-self-update" > "$SUDOERS_FILE"
+if visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+  install -m 440 -o root -g root "$SUDOERS_FILE" /etc/sudoers.d/logsonfire-agent
+  echo "Remote 'update now' enabled (the Agents page can trigger an upgrade without SSH)."
+else
+  echo "Could not validate the sudoers rule for remote updates — skipping it. The manual upgrade.sh path still works." >&2
+fi
+rm -f "$SUDOERS_FILE"
+
 systemctl daemon-reload
 systemctl enable logsonfire-agent
 # restart, not "enable --now": --now only *starts* the unit, which is a

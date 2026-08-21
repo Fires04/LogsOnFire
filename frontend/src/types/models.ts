@@ -1,6 +1,7 @@
 export interface Agent {
   id: string
   name: string
+  notes: string | null
   online: boolean
   last_seen_at: string | null
   last_heartbeat_rtt_ms: number | null
@@ -16,10 +17,17 @@ export interface HealthInfo {
 
 export interface AgentCreateInput {
   name: string
+  notes?: string
 }
 
 export interface AgentUpdateInput {
   name?: string
+  notes?: string
+}
+
+export interface TriggerUpdateResult {
+  started: boolean
+  error: string | null
 }
 
 /** Returned only from enrollment/reissue — `token` is shown exactly once. */
@@ -67,6 +75,16 @@ export interface ResolveResponse {
   truncated: boolean
   error: string | null
   warning: string | null
+}
+
+export interface JournalUnitsResponse {
+  units: string[]
+  error: string | null
+}
+
+export interface DockerContainersResponse {
+  containers: string[]
+  error: string | null
 }
 
 export interface DashboardPanel {

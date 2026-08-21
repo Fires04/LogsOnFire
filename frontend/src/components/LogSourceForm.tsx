@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Button, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Autocomplete, Button, Group, Loader, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
 import { api } from '../lib/api'
 import FileExplorer from './FileExplorer'
 import Modal from './Modal'
-import type { LogSourceCreateInput, LogSourceMode, ResolveResponse } from '../types/models'
+import type {
+  DockerContainersResponse,
+  JournalUnitsResponse,
+  LogSourceCreateInput,
+  LogSourceMode,
+  ResolveResponse,
+} from '../types/models'
 
 interface Props {
   agentId: string
@@ -40,8 +46,24 @@ const PATH_FIELD_PLACEHOLDER: Record<LogSourceMode, string> = {
 // Modes with nothing on the agent's filesystem to browse to.
 const NON_BROWSABLE_MODES: LogSourceMode[] = ['regex', 'journal', 'docker']
 
+/** A sensible default Label so "Mode: journal, unit: nginx.service" doesn't
+ * also require typing "Label: nginx journal" by hand — still just a
+ * starting point, freely editable, and stops being touched the moment the
+ * user edits Label themselves (see labelTouched below). */
+function suggestLabel(mode: LogSourceMode, pathOrPattern: string): string {
+  const trimmed = pathOrPattern.trim()
+  if (!trimmed) return mode === 'journal' ? 'journal' : ''
+  if (mode === 'journal') return trimmed === '*' ? 'journal' : `journal: ${trimmed}`
+  if (mode === 'docker') return `docker: ${trimmed}`
+  // exact_path / glob / regex — the last path segment, falling back to the
+  // whole pattern if there isn't one (e.g. a bare filename, no slashes).
+  const base = trimmed.replace(/\/+$/, '').split('/').filter(Boolean).pop()
+  return base || trimmed
+}
+
 export default function LogSourceForm({ agentId, onCreate }: Props) {
   const [label, setLabel] = useState('')
+  const [labelTouched, setLabelTouched] = useState(false)
   const [mode, setMode] = useState<LogSourceMode>('glob')
   const [pathOrPattern, setPathOrPattern] = useState('')
   const [regexBaseDir, setRegexBaseDir] = useState('')
@@ -50,7 +72,39 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [browsing, setBrowsing] = useState<'path' | 'regexBaseDir' | null>(null)
+  const [journalUnits, setJournalUnits] = useState<string[]>([])
+  const [dockerContainers, setDockerContainers] = useState<string[]>([])
+  const [pickerLoading, setPickerLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Auto-fill Label from the mode/pattern being entered, unless the user
+  // has already typed something into Label themselves.
+  useEffect(() => {
+    if (!labelTouched) setLabel(suggestLabel(mode, pathOrPattern))
+  }, [mode, pathOrPattern, labelTouched])
+
+  // journal/docker path fields are pickers over what the agent actually
+  // has, not free browsing — fetch the option list once per mode switch.
+  // Best-effort: an empty/failed fetch just leaves the field as free text.
+  useEffect(() => {
+    if (mode !== 'journal' && mode !== 'docker') return
+    let cancelled = false
+    setPickerLoading(true)
+    const req =
+      mode === 'journal'
+        ? api.get<JournalUnitsResponse>(`/api/agents/${agentId}/journal-units`).then((r) => {
+            if (!cancelled) setJournalUnits(r.units)
+          })
+        : api.get<DockerContainersResponse>(`/api/agents/${agentId}/docker-containers`).then((r) => {
+            if (!cancelled) setDockerContainers(r.containers)
+          })
+    req.catch(() => undefined).finally(() => {
+      if (!cancelled) setPickerLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, mode])
 
   useEffect(() => {
     if (!pathOrPattern || (mode === 'regex' && !regexBaseDir)) {
@@ -92,6 +146,7 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
         regex_base_dir: mode === 'regex' ? regexBaseDir : undefined,
       })
       setLabel('')
+      setLabelTouched(false)
       setPathOrPattern('')
       setRegexBaseDir('')
       setPreview(null)
@@ -109,7 +164,10 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
         <TextInput
           label="Label"
           value={label}
-          onChange={(e) => setLabel(e.currentTarget.value)}
+          onChange={(e) => {
+            setLabel(e.currentTarget.value)
+            setLabelTouched(true)
+          }}
           required
           placeholder="e.g. nginx access log"
         />
@@ -138,14 +196,28 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
         )}
 
         <Group align="flex-end" gap="xs">
-          <TextInput
-            style={{ flex: 1 }}
-            label={PATH_FIELD_LABEL[mode]}
-            value={pathOrPattern}
-            onChange={(e) => setPathOrPattern(e.currentTarget.value)}
-            placeholder={PATH_FIELD_PLACEHOLDER[mode]}
-            required
-          />
+          {mode === 'journal' || mode === 'docker' ? (
+            <Autocomplete
+              style={{ flex: 1 }}
+              label={PATH_FIELD_LABEL[mode]}
+              description={pickerLoading ? undefined : 'Pick from what the agent found, or type your own'}
+              value={pathOrPattern}
+              onChange={setPathOrPattern}
+              data={mode === 'journal' ? journalUnits : dockerContainers}
+              placeholder={PATH_FIELD_PLACEHOLDER[mode]}
+              rightSection={pickerLoading ? <Loader size="xs" /> : undefined}
+              required
+            />
+          ) : (
+            <TextInput
+              style={{ flex: 1 }}
+              label={PATH_FIELD_LABEL[mode]}
+              value={pathOrPattern}
+              onChange={(e) => setPathOrPattern(e.currentTarget.value)}
+              placeholder={PATH_FIELD_PLACEHOLDER[mode]}
+              required
+            />
+          )}
           {!NON_BROWSABLE_MODES.includes(mode) && (
             <Button variant="default" onClick={() => setBrowsing('path')}>
               Browse…
@@ -189,7 +261,6 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
             onClose={() => setBrowsing(null)}
             onSelectFile={(path) => {
               setPathOrPattern(path)
-              setLabel((prev) => (prev.trim() ? prev : path.split('/').filter(Boolean).pop() ?? path))
               setBrowsing(null)
             }}
             onSelectDirectory={
