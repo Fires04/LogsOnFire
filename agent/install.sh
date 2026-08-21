@@ -165,13 +165,28 @@ chmod 644 /etc/systemd/system/logsonfire-agent.service
 # unprivileged user can invoke via a narrowly-scoped sudo rule (nothing
 # else) when the server sends a self_update message over /ws/agent — this
 # gets the "SSH in and re-run the install/upgrade" experience without
-# actually needing SSH access. Re-derives server_url from the live
-# config.toml (not this install run's $SERVER_URL) so it stays correct
-# even if the config changes later. visudo -cf validates the rule before
-# it's installed — a malformed sudoers file can lock out sudo entirely,
-# so this fails soft (remote update just won't be available) rather than
-# risking that.
-cat > /usr/local/bin/logsonfire-agent-self-update <<'SCRIPT'
+# actually needing SSH access. Same treatment as the Docker group above
+# and for the same reason: a sudo NOPASSWD grant is root-equivalent for
+# whatever it names, so — even though this one is scoped to a single fixed
+# script with no arguments, not a whole group — it's opt-in and asked
+# explicitly, never added automatically. A malicious or compromised server
+# could otherwise force a root-level `pip install`+restart on every
+# enrolled host purely by declining to be trustworthy; that's a
+# meaningfully bigger blast radius than "the server can read whatever log
+# files this agent already has access to", so it deserves the same
+# explicit consent as Docker rather than being bundled in silently.
+# LOGSONFIRE_INSTALL_ENABLE_REMOTE_UPDATE=yes|no skips the prompt.
+ENABLE_REMOTE_UPDATE="${LOGSONFIRE_INSTALL_ENABLE_REMOTE_UPDATE:-}"
+if [[ -z "$ENABLE_REMOTE_UPDATE" ]]; then
+  if [[ -e /dev/tty ]]; then
+    read -r -p "Let the server trigger an agent upgrade remotely (no SSH needed)? This grants a narrow, single-command sudo rule — think of it like a remote install.sh re-run. [y/N] " ENABLE_REMOTE_UPDATE < /dev/tty || ENABLE_REMOTE_UPDATE="n"
+  else
+    ENABLE_REMOTE_UPDATE="n"
+  fi
+fi
+case "${ENABLE_REMOTE_UPDATE,,}" in
+  y|yes)
+    cat > /usr/local/bin/logsonfire-agent-self-update <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 SERVER_URL=$(grep -oP '(?<=^server_url = ")[^"]*' /etc/logsonfire-agent/config.toml)
@@ -182,18 +197,27 @@ case "$SERVER_URL" in
 esac
 curl -fsSL "${DOWNLOAD_URL%/}/agent/upgrade.sh" | bash
 SCRIPT
-chmod 750 /usr/local/bin/logsonfire-agent-self-update
-chown root:root /usr/local/bin/logsonfire-agent-self-update
+    chmod 750 /usr/local/bin/logsonfire-agent-self-update
+    chown root:root /usr/local/bin/logsonfire-agent-self-update
 
-SUDOERS_FILE=$(mktemp)
-echo "logsonfire-agent ALL=(root) NOPASSWD: /usr/local/bin/logsonfire-agent-self-update" > "$SUDOERS_FILE"
-if visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
-  install -m 440 -o root -g root "$SUDOERS_FILE" /etc/sudoers.d/logsonfire-agent
-  echo "Remote 'update now' enabled (the Agents page can trigger an upgrade without SSH)."
-else
-  echo "Could not validate the sudoers rule for remote updates — skipping it. The manual upgrade.sh path still works." >&2
-fi
-rm -f "$SUDOERS_FILE"
+    # visudo -cf validates the rule before it's installed — a malformed
+    # sudoers file can lock out sudo entirely, so this fails soft (remote
+    # update just won't be available) rather than risking that.
+    SUDOERS_FILE=$(mktemp)
+    echo "logsonfire-agent ALL=(root) NOPASSWD: /usr/local/bin/logsonfire-agent-self-update" > "$SUDOERS_FILE"
+    if visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+      install -m 440 -o root -g root "$SUDOERS_FILE" /etc/sudoers.d/logsonfire-agent
+      echo "Remote 'update now' enabled (the Agents page can trigger an upgrade without SSH)."
+    else
+      echo "Could not validate the sudoers rule for remote updates — skipping it. The manual upgrade.sh path still works." >&2
+    fi
+    rm -f "$SUDOERS_FILE"
+    ;;
+  *)
+    echo "Skipped remote update — the manual 'upgrade.sh' path still works. To enable it later, re-run this installer." >&2
+    rm -f /usr/local/bin/logsonfire-agent-self-update /etc/sudoers.d/logsonfire-agent 2>/dev/null || true
+    ;;
+esac
 
 systemctl daemon-reload
 systemctl enable logsonfire-agent
