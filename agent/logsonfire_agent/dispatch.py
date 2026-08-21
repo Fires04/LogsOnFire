@@ -33,8 +33,11 @@ BACKFILL_LINES = 200
 # agent process itself runs as the unprivileged 'logsonfire-agent' user and
 # can neither pip-install into system site-packages nor restart its own
 # systemd unit, so a remote "update now" has to go through this narrow,
-# fixed-path escalation rather than a broad sudo grant. Hosts enrolled
-# before this feature existed won't have it yet — see _handle_self_update.
+# fixed-path escalation rather than a broad sudo grant. Opt-in at install
+# time (same reasoning as the Docker group there — a sudo NOPASSWD grant
+# is root-equivalent for whatever it names), so most hosts — anything
+# installed before this feature existed, or where the prompt was declined
+# — won't have it. See _handle_self_update.
 SELF_UPDATE_SCRIPT = "/usr/local/bin/logsonfire-agent-self-update"
 
 
@@ -171,7 +174,10 @@ class Dispatcher:
             await self._send(
                 {
                     "type": "self_update_result", "req_id": req_id, "started": False,
-                    "error": "Remote update isn't set up on this host yet — re-run install.sh once to enable it.",
+                    "error": (
+                        "Remote update isn't enabled on this host — it's opt-in for security "
+                        "reasons. Re-run install.sh and answer 'y' to the remote-update prompt."
+                    ),
                 }
             )
             return
