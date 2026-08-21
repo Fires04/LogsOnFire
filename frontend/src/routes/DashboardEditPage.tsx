@@ -6,6 +6,7 @@ import type { Layout } from 'react-grid-layout'
 import { api, ApiError } from '../lib/api'
 import DashboardGrid, { type GridPanel } from '../components/DashboardGrid'
 import { qualifiedLabel } from '../lib/labels'
+import { randomId } from '../lib/randomId'
 import type { Agent, Dashboard, DashboardPanelCreate, LogSource, ResolveResponse } from '../types/models'
 
 const DEFAULT_W = 6
@@ -116,7 +117,7 @@ export default function DashboardEditPage() {
     setPanels((prev) => [
       ...prev,
       {
-        id: `draft-${crypto.randomUUID()}`,
+        id: `draft-${randomId()}`,
         logSourceId: logSource.id,
         resolvedPath,
         title: qualifiedLabel(agent, logSource),
