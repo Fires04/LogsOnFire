@@ -55,3 +55,18 @@ class ResolveResponse(BaseModel):
     # journal access) — the resolve still succeeded, but the result may be
     # incomplete for a reason the user can actually fix.
     warning: str | None = None
+
+
+class JournalUnitsOut(BaseModel):
+    """Powers the journal-mode unit picker in the log source form — a
+    best-effort suggestion list, not validation. error is set (units left
+    empty) when the agent is offline/timed out/failed to list; the form
+    still accepts free-text entry either way."""
+    units: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class DockerContainersOut(BaseModel):
+    """Same as JournalUnitsOut, for docker-mode's container picker."""
+    containers: list[str] = Field(default_factory=list)
+    error: str | None = None

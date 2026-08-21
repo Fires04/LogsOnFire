@@ -10,7 +10,15 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.log_source import LogSource
 from app.models.user import User
-from app.schemas.log_source import LogSourceCreate, LogSourceOut, LogSourceUpdate, ResolveResponse, ResolvedFileOut
+from app.schemas.log_source import (
+    DockerContainersOut,
+    JournalUnitsOut,
+    LogSourceCreate,
+    LogSourceOut,
+    LogSourceUpdate,
+    ResolveResponse,
+    ResolvedFileOut,
+)
 from app.security.deps import require_permission
 
 router = APIRouter(prefix="/api/agents", tags=["log-sources"])
@@ -124,6 +132,40 @@ async def resolve_preview(
     live matches while the user is still typing, before hitting save."""
     await _get_agent_or_404(db, agent_id)
     return await _resolve_via_agent(agent_id, payload.mode, payload.path_or_pattern, payload.regex_base_dir)
+
+
+@router.get("/{agent_id}/journal-units", response_model=JournalUnitsOut)
+async def list_journal_units(
+    agent_id: str, db: AsyncSession = Depends(get_db), _user: User = Depends(require_permission(LOG_SOURCE_READ))
+) -> JournalUnitsOut:
+    """Powers the journal-mode picker in the "Add log source" form — a
+    best-effort suggestion list from the agent's own `systemctl
+    list-units`, not validation; the form still accepts a typed-in unit
+    name if this fails or the agent is offline."""
+    await _get_agent_or_404(db, agent_id)
+    try:
+        reply = await get_agent_registry().request(agent_id, {"type": "list_units"})
+    except AgentOfflineError:
+        return JournalUnitsOut(units=[], error="Agent is offline.")
+    except AgentTimeoutError:
+        return JournalUnitsOut(units=[], error="Agent did not respond in time.")
+    return JournalUnitsOut(units=reply.get("units", []), error=reply.get("error"))
+
+
+@router.get("/{agent_id}/docker-containers", response_model=DockerContainersOut)
+async def list_docker_containers(
+    agent_id: str, db: AsyncSession = Depends(get_db), _user: User = Depends(require_permission(LOG_SOURCE_READ))
+) -> DockerContainersOut:
+    """Same as list_journal_units above, for docker mode's container
+    picker."""
+    await _get_agent_or_404(db, agent_id)
+    try:
+        reply = await get_agent_registry().request(agent_id, {"type": "list_containers"})
+    except AgentOfflineError:
+        return DockerContainersOut(containers=[], error="Agent is offline.")
+    except AgentTimeoutError:
+        return DockerContainersOut(containers=[], error="Agent did not respond in time.")
+    return DockerContainersOut(containers=reply.get("containers", []), error=reply.get("error"))
 
 
 @global_router.get("/{log_source_id}", response_model=LogSourceOut)

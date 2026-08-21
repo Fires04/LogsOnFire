@@ -13,6 +13,9 @@ Agent -> server messages:
     {"type": "tail_line", "resolved_path", "text"}
     {"type": "tail_error", "resolved_path", "message"}
     {"type": "tail_closed", "resolved_path", "reason"}
+    {"type": "list_units_result", "req_id", "units", "error"?}
+    {"type": "list_containers_result", "req_id", "containers", "error"?}
+    {"type": "self_update_result", "req_id", "started", "error"?}
     {"type": "pong"}
 
 Server -> agent messages:
@@ -20,6 +23,9 @@ Server -> agent messages:
     {"type": "browse", "req_id", "path"?}
     {"type": "start_tail", "req_id", "resolved_path"}
     {"type": "stop_tail", "resolved_path"}
+    {"type": "list_units", "req_id"}
+    {"type": "list_containers", "req_id"}
+    {"type": "self_update", "req_id"}
     {"type": "ping"}
 
 Auth: `Authorization: Bearer <token>` header at WS handshake — non-browser
@@ -88,7 +94,10 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             elif msg_type == "pong":
                 rtt_ms = monitor.notify_pong()
                 await mark_heartbeat(db, agent, rtt_ms)
-            elif msg_type in ("resolve_result", "browse_result", "tail_backfill"):
+            elif msg_type in (
+                "resolve_result", "browse_result", "tail_backfill",
+                "list_units_result", "list_containers_result", "self_update_result",
+            ):
                 req_id = raw.get("req_id")
                 if req_id:
                     registry.deliver(agent.id, req_id, raw)

@@ -125,3 +125,19 @@ async def test_tail_whole_journal_delivers_a_new_line_promptly():
                     break
     finally:
         await gen.aclose()
+
+
+@pytest.mark.skipif(shutil.which("systemctl") is None, reason="systemctl not available on this host")
+async def test_list_journal_units_returns_real_units():
+    """Powers the unit picker in the log source form — checked against the
+    real systemctl on this host rather than mocked, same policy as the rest
+    of this file. Doesn't assert on any specific unit name (that varies by
+    host), just that it's a real, sane-looking list."""
+    provider = LocalFileProvider()
+    units = await provider.list_journal_units()
+    assert isinstance(units, list)
+    assert all(u.endswith(".service") for u in units)
+    # No duplicates — a unit can appear more than once in raw
+    # `systemctl list-units` output (e.g. once loaded, once as a template
+    # instance) and the picker shouldn't offer the same name twice.
+    assert len(units) == len(set(units))

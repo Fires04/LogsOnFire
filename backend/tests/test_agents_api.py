@@ -95,6 +95,96 @@ async def test_browse_offline_agent_returns_clean_error(auth_client: AsyncClient
     assert "offline" in body["error"].lower()
 
 
+async def test_agent_notes_create_and_update(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "with-notes", "notes": "rack 3, proxmox node"})
+    assert create.status_code == 201, create.text
+    agent_id = create.json()["agent"]["id"]
+    assert create.json()["agent"]["notes"] == "rack 3, proxmox node"
+
+    resp = await auth_client.patch(f"/api/agents/{agent_id}", json={"notes": "moved to rack 4"})
+    assert resp.status_code == 200
+    assert resp.json()["notes"] == "moved to rack 4"
+
+    resp = await auth_client.get(f"/api/agents/{agent_id}")
+    assert resp.json()["notes"] == "moved to rack 4"
+
+
+async def test_agent_created_without_notes_defaults_to_none(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "no-notes"})
+    assert create.status_code == 201, create.text
+    assert create.json()["agent"]["notes"] is None
+
+
+async def test_trigger_update_offline_agent_returns_clean_error(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "update-offline"})
+    agent_id = create.json()["agent"]["id"]
+
+    resp = await auth_client.post(f"/api/agents/{agent_id}/trigger-update")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["started"] is False
+    assert "offline" in body["error"].lower()
+
+
+async def test_trigger_update_connected_agent_forwards_ack(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "update-connected"})
+    agent_id = create.json()["agent"]["id"]
+
+    def handler(msg: dict) -> dict | None:
+        if msg["type"] == "self_update":
+            return {"started": True}
+        return None
+
+    attach_fake_agent(agent_id, handler)
+
+    resp = await auth_client.post(f"/api/agents/{agent_id}/trigger-update")
+    assert resp.status_code == 200
+    assert resp.json() == {"started": True, "error": None}
+
+
+async def test_journal_units_offline_agent_returns_clean_error(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "units-offline"})
+    agent_id = create.json()["agent"]["id"]
+
+    resp = await auth_client.get(f"/api/agents/{agent_id}/journal-units")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["units"] == []
+    assert "offline" in body["error"].lower()
+
+
+async def test_journal_units_connected_agent_returns_list(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "units-connected"})
+    agent_id = create.json()["agent"]["id"]
+
+    def handler(msg: dict) -> dict | None:
+        if msg["type"] == "list_units":
+            return {"units": ["nginx.service", "sshd.service"]}
+        return None
+
+    attach_fake_agent(agent_id, handler)
+
+    resp = await auth_client.get(f"/api/agents/{agent_id}/journal-units")
+    assert resp.status_code == 200
+    assert resp.json()["units"] == ["nginx.service", "sshd.service"]
+
+
+async def test_docker_containers_connected_agent_returns_list(auth_client: AsyncClient):
+    create = await auth_client.post("/api/agents", json={"name": "containers-connected"})
+    agent_id = create.json()["agent"]["id"]
+
+    def handler(msg: dict) -> dict | None:
+        if msg["type"] == "list_containers":
+            return {"containers": ["immich_server"]}
+        return None
+
+    attach_fake_agent(agent_id, handler)
+
+    resp = await auth_client.get(f"/api/agents/{agent_id}/docker-containers")
+    assert resp.status_code == 200
+    assert resp.json()["containers"] == ["immich_server"]
+
+
 async def test_browse_connected_agent_returns_entries(auth_client: AsyncClient):
     create = await auth_client.post("/api/agents", json={"name": "connected-browse"})
     agent_id = create.json()["agent"]["id"]

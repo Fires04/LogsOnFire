@@ -25,6 +25,7 @@ import {
   IconSearch,
   IconTrash,
 } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
 import { api, ApiError } from '../lib/api'
 import { httpBase, wsBase } from '../lib/serverOrigin'
 import AgentForm from '../components/AgentForm'
@@ -36,6 +37,7 @@ import type {
   AgentCreateResult,
   AgentUpdateInput,
   InstallLinkResult,
+  TriggerUpdateResult,
 } from '../types/models'
 
 dayjs.extend(relativeTime)
@@ -58,8 +60,36 @@ function upgradeCommand(): string {
 
 /** Click-to-reveal upgrade instructions for a version-mismatched agent —
  * an icon rather than plain text/tooltip so there's an actual copy button,
- * not just something to read and retype. */
-function UpgradeHint() {
+ * not just something to read and retype. Also offers "Update now", which
+ * triggers the same upgrade remotely over the agent's live connection
+ * (POST /trigger-update) instead of requiring SSH access to the host. */
+function UpgradeHint({ agentId, online }: { agentId: string; online: boolean }) {
+  const [triggering, setTriggering] = useState(false)
+
+  async function handleTriggerUpdate() {
+    setTriggering(true)
+    try {
+      const result = await api.post<TriggerUpdateResult>(`/api/agents/${agentId}/trigger-update`)
+      if (result.started) {
+        notifications.show({
+          color: 'teal',
+          title: 'Update triggered',
+          message: 'The agent is upgrading and will reconnect shortly.',
+        })
+      } else {
+        notifications.show({ color: 'red', title: 'Could not trigger update', message: result.error ?? 'Unknown error' })
+      }
+    } catch (err) {
+      notifications.show({
+        color: 'red',
+        title: 'Could not trigger update',
+        message: err instanceof ApiError ? err.message : 'Unknown error',
+      })
+    } finally {
+      setTriggering(false)
+    }
+  }
+
   return (
     <Popover withinPortal position="bottom-end" shadow="md">
       <Popover.Target>
@@ -73,13 +103,16 @@ function UpgradeHint() {
           <IconRefresh size={13} />
         </ActionIcon>
       </Popover.Target>
-      <Popover.Dropdown maw={360}>
+      <Popover.Dropdown maw={360} onClick={(e) => e.stopPropagation()}>
         <Stack gap="xs">
           <Text size="sm" fw={600}>
             Agent needs an upgrade
           </Text>
+          <Button size="xs" leftSection={<IconRefresh size={13} />} onClick={handleTriggerUpdate} loading={triggering} disabled={!online}>
+            Update now
+          </Button>
           <Text size="xs" c="dimmed">
-            Run this on the agent's own host (SSH into it first):
+            Or run this on the agent's own host (SSH into it first):
           </Text>
           <CopyField value={upgradeCommand()} />
         </Stack>
@@ -259,7 +292,7 @@ export default function AgentsPage() {
                     <Badge variant="light" color="orange">
                       {agent.agent_version}
                     </Badge>
-                    <UpgradeHint />
+                    <UpgradeHint agentId={agent.id} online={agent.online} />
                   </Group>
                 ) : (
                   <Badge variant="light" color="green">

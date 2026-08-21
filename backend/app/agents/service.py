@@ -15,7 +15,7 @@ from app.security.agent_tokens import generate_token, hash_token, token_prefix
 from app.tailing.manager import get_tail_manager
 
 
-async def enroll_agent(db: AsyncSession, name: str, created_by: str) -> tuple[Agent, str]:
+async def enroll_agent(db: AsyncSession, name: str, created_by: str, notes: str | None = None) -> tuple[Agent, str]:
     """Creates a new Agent and returns (agent, plaintext_token). The token
     is never stored or logged in plaintext anywhere — this is the only
     moment it exists outside the agent's own config file."""
@@ -25,6 +25,7 @@ async def enroll_agent(db: AsyncSession, name: str, created_by: str) -> tuple[Ag
         token_hash=hash_token(token),
         token_prefix=token_prefix(token),
         created_by=created_by,
+        notes=notes,
     )
     db.add(agent)
     await db.commit()

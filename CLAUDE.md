@@ -196,6 +196,24 @@ only ever asks the connected agent over `/ws/agent` and waits for a reply.
   `LOGSONFIRE_INSTALL_ENABLE_DOCKER=yes|no` for non-interactive installs) —
   never add it unconditionally the way journal/adm group membership is.
 
+- **Remote "update now" (the Agents page's trigger-update button) doesn't
+  retroactively apply to already-installed agents.** It works by having
+  the agent (running as the unprivileged `logsonfire-agent` user, which
+  can neither `pip install` into system site-packages nor restart its own
+  systemd unit) invoke a fixed, root-owned wrapper script
+  (`/usr/local/bin/logsonfire-agent-self-update`) via a narrowly-scoped
+  `sudoers.d` NOPASSWD rule naming that exact path — both written by
+  `install.sh`. A host enrolled before this feature existed has neither
+  file; `agent/dispatch.py::_handle_self_update` checks for the wrapper
+  script first and replies with a clear "re-run install.sh" error rather
+  than a confusing sudo permission failure, but the fix genuinely is a
+  one-time `install.sh` re-run (safe — it's idempotent, see the
+  `enable`+`restart` gotcha above), not something the update mechanism can
+  bootstrap itself out of. This is real remote-code-execution surface by
+  design (that's the whole point — install.sh itself requires the same
+  root trust over SSH), scoped as tightly as the feature allows: one fixed
+  command, no arguments, not a blanket sudo grant.
+
 ## Testing
 
 Three independent test suites, one per package (they don't share a venv —

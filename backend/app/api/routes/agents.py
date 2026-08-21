@@ -14,7 +14,15 @@ from app.core.version import get_expected_agent_version
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
-from app.schemas.agent import AgentCreate, AgentCreateResult, AgentOut, AgentUpdate, InstallLinkCreate, InstallLinkOut
+from app.schemas.agent import (
+    AgentCreate,
+    AgentCreateResult,
+    AgentOut,
+    AgentUpdate,
+    InstallLinkCreate,
+    InstallLinkOut,
+    TriggerUpdateOut,
+)
 from app.schemas.browse import BrowseResponse, DirEntryOut
 from app.security.deps import require_permission
 
@@ -26,6 +34,7 @@ def _to_out(agent: Agent) -> AgentOut:
     return AgentOut(
         id=agent.id,
         name=agent.name,
+        notes=agent.notes,
         online=agent.online,
         last_seen_at=agent.last_seen_at,
         last_heartbeat_rtt_ms=agent.last_heartbeat_rtt_ms,
@@ -66,7 +75,7 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission(AGENT_WRITE)),
 ) -> AgentCreateResult:
-    agent, token = await enroll_agent(db, payload.name, user.id)
+    agent, token = await enroll_agent(db, payload.name, user.id, notes=payload.notes)
     await audit_record(
         db, user_id=user.id, event_type="agent_created", target_type="agent", target_id=agent.id,
         detail={"name": agent.name},
@@ -84,6 +93,8 @@ async def update_agent(
     agent = await _get_agent_or_404(db, agent_id)
     if payload.name is not None:
         agent.name = payload.name
+    if payload.notes is not None:
+        agent.notes = payload.notes
     await db.commit()
     await audit_record(db, user_id=user.id, event_type="agent_updated", target_type="agent", target_id=agent_id)
     return _to_out(agent)
@@ -135,6 +146,27 @@ async def create_install_link(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "server_url must start with ws:// or wss://")
     code = get_install_link_store().create(agent_id, payload.token, payload.server_url)
     return InstallLinkOut(code=code, expires_in_seconds=LINK_TTL_SECONDS)
+
+
+@router.post("/{agent_id}/trigger-update", response_model=TriggerUpdateOut)
+async def trigger_update(
+    agent_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission(AGENT_WRITE))
+) -> TriggerUpdateOut:
+    """The "update now" button behind the version-mismatch icon: same
+    effect as an operator SSHing into the host and re-running upgrade.sh,
+    triggered remotely over the agent's existing /ws/agent connection —
+    see agent/dispatch.py::_handle_self_update and install.sh's sudoers
+    setup for how the agent (running unprivileged) is allowed to do this
+    at all."""
+    agent = await _get_agent_or_404(db, agent_id)
+    try:
+        reply = await get_agent_registry().request(agent.id, {"type": "self_update"}, timeout=10.0)
+    except AgentOfflineError:
+        return TriggerUpdateOut(started=False, error="Agent is offline.")
+    except AgentTimeoutError:
+        return TriggerUpdateOut(started=False, error="Agent did not acknowledge the update request in time.")
+    await audit_record(db, user_id=user.id, event_type="agent_update_triggered", target_type="agent", target_id=agent_id)
+    return TriggerUpdateOut(started=reply.get("started", False), error=reply.get("error"))
 
 
 @router.get("/{agent_id}/browse", response_model=BrowseResponse)

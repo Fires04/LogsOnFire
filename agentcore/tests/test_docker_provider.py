@@ -94,3 +94,9 @@ async def test_tail_docker_mode_yields_live_lines(running_container: str):
         assert "line " in line
     finally:
         await gen.aclose()
+
+
+async def test_list_docker_containers_includes_running_container(running_container: str):
+    provider = LocalFileProvider()
+    containers = await provider.list_docker_containers()
+    assert running_container in containers

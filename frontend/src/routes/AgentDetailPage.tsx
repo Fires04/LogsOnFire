@@ -6,22 +6,25 @@ import {
   ActionIcon,
   Alert,
   Badge,
+  Button,
   Card,
   Drawer,
   Group,
   Indicator,
   Stack,
   Text,
+  Textarea,
   Title,
   Tooltip,
 } from '@mantine/core'
-import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconTrash } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
+import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconRefresh, IconTrash } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import { httpBase } from '../lib/serverOrigin'
 import CopyField from '../components/CopyField'
 import LogSourceForm from '../components/LogSourceForm'
 import LogSourceViewer from '../components/LogSourceViewer'
-import type { Agent, LogSource, LogSourceCreateInput, ResolveResponse } from '../types/models'
+import type { Agent, LogSource, LogSourceCreateInput, ResolveResponse, TriggerUpdateResult } from '../types/models'
 
 const MODE_LABEL: Record<LogSource['mode'], string> = {
   exact_path: 'exact path',
@@ -47,6 +50,9 @@ export default function AgentDetailPage() {
   const [resolving, setResolving] = useState<Record<string, boolean>>({})
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [notesDraft, setNotesDraft] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [triggeringUpdate, setTriggeringUpdate] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!agentId) return
@@ -56,11 +62,46 @@ export default function AgentDetailPage() {
     ])
     setAgent(a)
     setSources(ls)
+    setNotesDraft((prev) => (document.activeElement?.id === 'agent-notes' ? prev : a.notes ?? ''))
   }, [agentId])
 
   useEffect(() => {
     refresh().finally(() => setLoading(false))
   }, [refresh])
+
+  async function handleSaveNotes() {
+    setSavingNotes(true)
+    try {
+      const updated = await api.patch<Agent>(`/api/agents/${agentId}`, { notes: notesDraft })
+      setAgent(updated)
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  async function handleTriggerUpdate() {
+    setTriggeringUpdate(true)
+    try {
+      const result = await api.post<TriggerUpdateResult>(`/api/agents/${agentId}/trigger-update`)
+      if (result.started) {
+        notifications.show({
+          color: 'teal',
+          title: 'Update triggered',
+          message: "The agent is upgrading and will reconnect shortly — its version badge will turn green once it's back on the current build.",
+        })
+      } else {
+        notifications.show({ color: 'red', title: 'Could not trigger update', message: result.error ?? 'Unknown error' })
+      }
+    } catch (err) {
+      notifications.show({
+        color: 'red',
+        title: 'Could not trigger update',
+        message: err instanceof ApiError ? err.message : 'Unknown error',
+      })
+    } finally {
+      setTriggeringUpdate(false)
+    }
+  }
 
   async function handleCreate(input: LogSourceCreateInput) {
     await api.post(`/api/agents/${agentId}/log-sources`, input)
@@ -129,13 +170,50 @@ export default function AgentDetailPage() {
         </Group>
       </Card>
 
+      <Card withBorder radius="md" p="md">
+        <Stack gap="xs">
+          <Textarea
+            id="agent-notes"
+            label="Notes"
+            description="Rack/VM/role, anything that helps you tell agents apart — visible only here"
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.currentTarget.value)}
+            autosize
+            minRows={2}
+            placeholder="No notes yet"
+          />
+          <Group justify="flex-end">
+            <Button
+              size="xs"
+              variant="default"
+              onClick={handleSaveNotes}
+              loading={savingNotes}
+              disabled={notesDraft === (agent.notes ?? '')}
+            >
+              Save notes
+            </Button>
+          </Group>
+        </Stack>
+      </Card>
+
       {agent.server_version_mismatch && (
         <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light" title="Agent needs an upgrade">
           <Stack gap="xs">
             <Text size="sm">
-              This agent's version ({agent.agent_version}) doesn't match the server's. Run this on the
-              agent's own host (SSH into it first):
+              This agent's version ({agent.agent_version}) doesn't match the server's. Trigger it remotely, or run
+              this on the agent's own host (SSH into it first):
             </Text>
+            <Group wrap="nowrap" align="flex-start" gap="xs">
+              <Button
+                size="xs"
+                leftSection={<IconRefresh size={14} />}
+                onClick={handleTriggerUpdate}
+                loading={triggeringUpdate}
+                disabled={!agent.online}
+              >
+                Update now
+              </Button>
+            </Group>
             <CopyField value={`curl -fsSL ${httpBase()}/agent/upgrade.sh | sudo bash`} />
           </Stack>
         </Alert>
