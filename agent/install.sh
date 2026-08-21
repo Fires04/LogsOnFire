@@ -162,7 +162,16 @@ sed "s|^ExecStart=.*|ExecStart=${AGENT_BIN}|" "$SERVICE_TEMPLATE" > /etc/systemd
 chmod 644 /etc/systemd/system/logsonfire-agent.service
 
 systemctl daemon-reload
-systemctl enable --now logsonfire-agent
+systemctl enable logsonfire-agent
+# restart, not "enable --now": --now only *starts* the unit, which is a
+# no-op if it's already active — re-running this script (new token after
+# re-enrolling, a config fix, whatever) would then silently leave the old
+# process running with the old config/binary loaded in memory, never
+# picking up what was just written to config.toml. restart always ends
+# up with the current config actually loaded, whether the unit was
+# already running or not. Found by direct testing: a re-enrolled agent
+# stayed unable to connect until manually restarted.
+systemctl restart logsonfire-agent
 
 echo "logsonfire-agent installed and started. Check status with:"
 echo "  systemctl status logsonfire-agent"
