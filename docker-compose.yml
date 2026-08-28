@@ -28,9 +28,9 @@ services:
       # Optional Authentik/OIDC login, bolted onto the password login above
       # as an *additional* path — leave all four unset/blank and OIDC stays
       # off entirely (password login is unaffected either way). See README.
-      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
-      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
-      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
     volumes:
       - logsonfire_data:/data
