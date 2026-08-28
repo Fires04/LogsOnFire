@@ -26,12 +26,14 @@ async def client() -> AsyncIterator[AsyncClient]:
     from app import database as database_module
     from app.agents import install_links as install_links_module
     from app.agents import registry as agent_registry_module
+    from app.api.routes import auth as auth_routes_module
     from app.security import jwt as jwt_module
     from app.tailing import manager as tailing_manager_module
 
     config_module.get_settings.cache_clear()
     database_module.reset_engine_cache()
     jwt_module.reset_secret_cache()
+    auth_routes_module.reset_oidc_client_for_tests()
     agent_registry_module.reset_agent_registry_for_tests()
     install_links_module.reset_install_link_store_for_tests()
     tailing_manager_module.reset_tail_manager_for_tests()

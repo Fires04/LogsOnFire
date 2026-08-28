@@ -16,6 +16,14 @@ dependencies = [
     "pyjwt>=2.8",
     "slowapi>=0.1.9",
     "python-multipart>=0.0.9",
+    # Only fireauth.oidc is used (optional Authentik/OIDC login bolted onto
+    # our own JWT/RBAC auth, never a replacement for it — see
+    # backend/app/api/routes/auth.py). fireauth.session/fireauth.router
+    # (the password/cookie-session pieces) are deliberately not used: this
+    # app's own User/Role/Permission/ResourceGrant RBAC is more capable
+    # than FireAuth's single-tier session model, same reasoning CrowdOnFire
+    # applied to its own bespoke auth.
+    "fireauth[oidc] @ git+https://github.com/Fires04/FireAuth.git",
 ]
 
 [project.optional-dependencies]

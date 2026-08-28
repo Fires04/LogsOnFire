@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import agent_install, agents, auth, dashboards, log_sources, saved_filters, ws_agent, ws_logs
@@ -55,6 +57,14 @@ def create_app() -> FastAPI:
         # Only used to sanity-check Host headers; X-Forwarded-* trust for
         # scheme/cookies is handled by running uvicorn with --proxy-headers.
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+    if settings.oidc_enabled:
+        # authlib's Starlette OAuth client needs *some* SessionMiddleware to
+        # stash the OAuth state/nonce across the redirect round-trip — this
+        # is unrelated to (and much narrower than) this app's own JWT
+        # cookies, just a few-seconds handshake, so a throwaway per-process
+        # secret and a short max_age are correct here (per fireauth's own
+        # README).
+        app.add_middleware(SessionMiddleware, secret_key=os.urandom(32).hex(), max_age=600)
 
     app.include_router(auth.router)
     app.include_router(agents.router)
@@ -70,8 +80,9 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         # Unauthenticated on purpose — the login screen shows the version
         # before any session exists, same reasoning as /api/health itself
-        # needing to work pre-auth.
-        return {"status": "ok", "version": get_server_version()}
+        # needing to work pre-auth. oidc_enabled tells the login page
+        # whether to render the "Sign in with Authentik" link at all.
+        return {"status": "ok", "version": get_server_version(), "oidc_enabled": settings.oidc_enabled}
 
     if STATIC_DIR.is_dir():
         assets_dir = STATIC_DIR / "assets"
