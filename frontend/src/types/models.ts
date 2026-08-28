@@ -13,6 +13,7 @@ export interface Agent {
 export interface HealthInfo {
   status: string
   version: string
+  oidc_enabled: boolean
 }
 
 export interface AgentCreateInput {

@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { Alert, Button, Center, Checkbox, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { Alert, Button, Center, Checkbox, Divider, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
+import { IconAlertCircle, IconLogin2 } from '@tabler/icons-react'
 import { useAuth } from '../lib/auth'
 import { ApiError } from '../lib/api'
-import { useServerVersion } from '../lib/serverVersion'
+import { useOidcEnabled, useServerVersion } from '../lib/serverVersion'
 
 export default function LoginPage() {
   const { user, login } = useAuth()
   const serverVersion = useServerVersion()
+  const oidcEnabled = useOidcEnabled()
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,6 +21,13 @@ export default function LoginPage() {
     const from = (location.state as { from?: string } | null)?.from ?? '/agents'
     return <Navigate to={from} replace />
   }
+
+  // Set by a redirect from GET /api/auth/oidc/callback when the Authentik
+  // identity's email doesn't match any existing FiresLog account — surfaced
+  // here rather than as a generic failed-login, since there's nothing to
+  // retry: the account has to already exist first.
+  const oidcUnmapped = new URLSearchParams(location.search).get('error') === 'oidc_unmapped'
+  const displayError = error ?? (oidcUnmapped ? 'That Authentik account has no matching FiresLog user.' : null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -75,15 +83,29 @@ export default function LoginPage() {
             checked={remember}
             onChange={(e) => setRemember(e.currentTarget.checked)}
           />
-          {error && (
+          {displayError && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
-              {error}
+              {displayError}
             </Alert>
           )}
           <Button type="submit" loading={busy} fullWidth mt="xs">
             Sign in
           </Button>
         </Stack>
+        {oidcEnabled && (
+          <>
+            <Divider label="or" labelPosition="center" my="md" />
+            <Button
+              component="a"
+              href="/api/auth/oidc/login"
+              variant="default"
+              fullWidth
+              leftSection={<IconLogin2 size={16} />}
+            >
+              Sign in with Authentik
+            </Button>
+          </>
+        )}
         {serverVersion && (
           <Text c="dimmed" size="xs" ta="center" mt="md">
             v{serverVersion}

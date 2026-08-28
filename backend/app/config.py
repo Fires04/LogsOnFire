@@ -53,6 +53,20 @@ class Settings(BaseSettings):
     # CORS / cookies
     cookie_domain: str | None = None
 
+    # Optional Authentik/OIDC login (fireauth.oidc.OIDCClient), bolted onto
+    # our own password/JWT/RBAC login as an *additional* path — never a
+    # replacement, see api/routes/auth.py. All four blank by default, which
+    # keeps OIDC off entirely (see oidc_enabled below) — an unconfigured
+    # deploy behaves exactly as it did before this existed.
+    authentik_client_id: str = ""
+    authentik_client_secret: str = ""
+    authentik_issuer: str = ""
+    oidc_redirect_uri: str = ""
+
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.authentik_client_id)
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"
