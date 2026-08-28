@@ -7,6 +7,7 @@ by hand against a real Authentik.
 """
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -72,6 +73,31 @@ async def test_oidc_callback_unmapped_email_does_not_log_in(client: AsyncClient,
     client.cookies.update(resp.cookies)
     me = await client.get("/api/auth/me")
     assert me.status_code == 401
+
+
+async def test_oidc_success_emits_auth_log_line(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+):
+    _patch_oidc_client(monkeypatch, userinfo={"email": "admin@example.com"})
+    await client.get("/api/auth/oidc/callback", follow_redirects=False)
+    out = capfd.readouterr().out
+    lines = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
+    record = next(r for r in lines if r["event"] == "login_success")
+    assert record["method"] == "oidc"
+    assert record["user"] == "admin@example.com"
+
+
+async def test_oidc_unmapped_emits_auth_log_line(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+):
+    _patch_oidc_client(monkeypatch, userinfo={"email": "nobody@example.com"})
+    await client.get("/api/auth/oidc/callback", follow_redirects=False)
+    out = capfd.readouterr().out
+    lines = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
+    record = next(r for r in lines if r["event"] == "login_failed")
+    assert record["method"] == "oidc"
+    assert record["user"] == "nobody@example.com"
+    assert record["reason"]
 
 
 async def test_health_reports_oidc_enabled(client: AsyncClient):
