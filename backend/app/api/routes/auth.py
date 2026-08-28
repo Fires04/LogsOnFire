@@ -123,9 +123,9 @@ def _get_oidc_client():
 
         _oidc_client = OIDCClient(
             OIDCConfig(
-                client_id=settings.authentik_client_id,
-                client_secret=settings.authentik_client_secret,
-                issuer=settings.authentik_issuer,
+                client_id=settings.oidc_client_id,
+                client_secret=settings.oidc_client_secret,
+                issuer=settings.oidc_issuer,
                 redirect_uri=settings.oidc_redirect_uri,
             )
         )

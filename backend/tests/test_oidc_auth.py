@@ -33,7 +33,7 @@ def _patch_oidc_client(monkeypatch: pytest.MonkeyPatch, userinfo: dict | None) -
 
 
 async def test_oidc_routes_404_when_not_configured(client: AsyncClient):
-    # No AUTHENTIK_CLIENT_ID set in the test env (see conftest.py) —
+    # No OIDC_CLIENT_ID set in the test env (see conftest.py) —
     # oidc_enabled is False, so both routes must not exist.
     login_resp = await client.get("/api/auth/oidc/login", follow_redirects=False)
     assert login_resp.status_code == 404
@@ -82,16 +82,16 @@ async def test_health_reports_oidc_enabled(client: AsyncClient):
 
 async def test_oidc_client_wires_up_when_configured(monkeypatch: pytest.MonkeyPatch):
     """Config-driven wiring, independent of the fake-client tests above:
-    with AUTHENTIK_CLIENT_ID set, _get_oidc_client() must actually build a
+    with OIDC_CLIENT_ID set, _get_oidc_client() must actually build a
     real fireauth OIDCClient (not None) — constructing it does no network
     I/O (authlib only hits the issuer's discovery document lazily, on the
     first real authorize/callback call), so this is safe to assert without
     a live IdP."""
     from app import config as config_module
 
-    monkeypatch.setenv("AUTHENTIK_CLIENT_ID", "test-client-id")
-    monkeypatch.setenv("AUTHENTIK_CLIENT_SECRET", "test-client-secret")
-    monkeypatch.setenv("AUTHENTIK_ISSUER", "https://authentik.example/application/o/fireslog/")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("OIDC_ISSUER", "https://authentik.example/application/o/fireslog/")
     monkeypatch.setenv("OIDC_REDIRECT_URI", "https://fireslog.example/api/auth/oidc/callback")
     config_module.get_settings.cache_clear()
     auth_routes.reset_oidc_client_for_tests()

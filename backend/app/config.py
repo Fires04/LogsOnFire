@@ -58,14 +58,14 @@ class Settings(BaseSettings):
     # replacement, see api/routes/auth.py. All four blank by default, which
     # keeps OIDC off entirely (see oidc_enabled below) — an unconfigured
     # deploy behaves exactly as it did before this existed.
-    authentik_client_id: str = ""
-    authentik_client_secret: str = ""
-    authentik_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_issuer: str = ""
     oidc_redirect_uri: str = ""
 
     @property
     def oidc_enabled(self) -> bool:
-        return bool(self.authentik_client_id)
+        return bool(self.oidc_client_id)
 
     @property
     def is_production(self) -> bool:

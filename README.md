@@ -118,9 +118,9 @@ All configuration is environment variables (see `.env.example` for Docker,
 | `AGENT_HEARTBEAT_INTERVAL_SECONDS` | `30` | how often the server pings each connected agent |
 | `AGENT_HEARTBEAT_TIMEOUT_SECONDS` | `90` | no pong within this window and the agent is marked offline |
 | `AGENT_REQUEST_TIMEOUT_SECONDS` | `10` | resolve/browse/start_tail reply timeout before returning a clean "agent did not respond" error |
-| `AUTHENTIK_CLIENT_ID` | *(none)* | optional "Sign in with Authentik" (OIDC), bolted onto password login as an *additional* option — leave unset and it stays off. See `.env.example` for the Authentik-side setup steps. |
-| `AUTHENTIK_CLIENT_SECRET` | *(none)* | — |
-| `AUTHENTIK_ISSUER` | *(none)* | Authentik application's issuer URL, e.g. `https://authentik.example.lan/application/o/<slug>/` |
+| `OIDC_CLIENT_ID` | *(none)* | optional "Sign in with Authentik" (OIDC), bolted onto password login as an *additional* option — leave unset and it stays off. See `.env.example` for the Authentik-side setup steps. |
+| `OIDC_CLIENT_SECRET` | *(none)* | — |
+| `OIDC_ISSUER` | *(none)* | Authentik application's issuer URL, e.g. `https://authentik.example.lan/application/o/<slug>/` |
 | `OIDC_REDIRECT_URI` | *(none)* | must exactly match the redirect URI registered on the Authentik provider, e.g. `https://<host>/api/auth/oidc/callback` |
 
 ## Architecture (short version)
