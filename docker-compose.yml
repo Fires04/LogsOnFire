@@ -25,6 +25,13 @@ services:
       # Set to true only when running behind a TLS-terminating reverse proxy
       # (nginx/Traefik/Caddy) that sets X-Forwarded-Proto/X-Forwarded-For.
       TRUSTED_PROXY: ${TRUSTED_PROXY:-false}
+      # Optional Authentik/OIDC login, bolted onto the password login above
+      # as an *additional* path — leave all four unset/blank and OIDC stays
+      # off entirely (password login is unaffected either way). See README.
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
     volumes:
       - logsonfire_data:/data
     restart: unless-stopped
