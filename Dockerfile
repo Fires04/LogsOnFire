@@ -67,8 +67,13 @@ WORKDIR /app
 
 # `grep` powers the live "grep bar" filter feature (app/tailing/grep.py) —
 # make sure it's present regardless of what the base image ships by default.
+# `git` is needed below at `pip install .` time: the fireauth dependency is
+# a VCS URL (git+https://github.com/Fires04/FireAuth.git), and pip shells
+# out to a real `git clone` for those, not just an HTTP fetch — without it
+# the build fails with "Cannot find command 'git'" (same fix CrowdOnFire
+# needed for the same dependency, see SHARED.md).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends grep \
+    && apt-get install -y --no-install-recommends grep git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=gitinfo /version.txt /version.txt
