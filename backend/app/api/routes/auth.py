@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from fireauth.auth_log import AuthLogger, client_ip
+
 from app.config import get_settings
 from app.core.audit import record as audit_record
 from app.core.rate_limit import limiter
@@ -29,6 +31,15 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # this app — everything else sits behind an authenticated session already.
 LOGIN_RATE_LIMIT = "10/minute"
 
+# Every login attempt (password and OIDC, success and failure) also emits
+# one JSON line to stdout via this — separate from (not a replacement for)
+# the DB audit_record calls below, which predate it and serve a different
+# purpose (in-app history). This is the shared cross-app convention
+# (fireauth.auth_log) so `docker compose logs` shows every attempt with
+# zero extra config, and any future CrowdSec ingestion covers every app
+# with one parser. See fireauth/auth_log.py's own docstring.
+_auth_log = AuthLogger(app="fireslog")
+
 
 @router.post("/login", response_model=MeResponse)
 @limiter.limit(LOGIN_RATE_LIMIT)
@@ -43,10 +54,14 @@ async def login(
         await audit_record(
             db, user_id=user.id if user else None, event_type="login_failed", detail={"email": payload.email}
         )
+        _auth_log.login_failed(
+            method="password", ip=client_ip(request), user=payload.email, reason="invalid credentials"
+        )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
     set_auth_cookies(response, user.id, remember=payload.remember)
     await audit_record(db, user_id=user.id, event_type="login", detail={"remember": payload.remember})
+    _auth_log.login_success(method="password", ip=client_ip(request), user=user.email)
     return MeResponse(id=user.id, email=user.email, is_admin=user_is_admin(user))
 
 
@@ -177,6 +192,9 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
         await audit_record(
             db, user_id=None, event_type="login_failed", detail={"method": "oidc", "email": email}
         )
+        _auth_log.login_failed(
+            method="oidc", ip=client_ip(request), user=email or "", reason="no matching FiresLog user"
+        )
         return RedirectResponse(url="/login?error=oidc_unmapped", status_code=status.HTTP_302_FOUND)
 
     response = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
@@ -185,4 +203,5 @@ async def oidc_callback(request: Request, db: AsyncSession = Depends(get_db)):
     # this path (matches fireauth's own build_auth_router() convention).
     set_auth_cookies(response, user.id, remember=True)
     await audit_record(db, user_id=user.id, event_type="login", detail={"method": "oidc"})
+    _auth_log.login_success(method="oidc", ip=client_ip(request), user=user.email)
     return response

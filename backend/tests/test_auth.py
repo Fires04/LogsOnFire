@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+import pytest
 from httpx import AsyncClient
 
 
@@ -19,6 +22,29 @@ async def test_login_success_sets_cookies(client: AsyncClient):
 async def test_login_wrong_password(client: AsyncClient):
     resp = await client.post("/api/auth/login", json={"email": "admin@example.com", "password": "nope"})
     assert resp.status_code == 401
+
+
+async def test_login_success_emits_auth_log_line(client: AsyncClient, capfd: pytest.CaptureFixture[str]):
+    """fireauth.auth_log's shared stdout convention (see api/routes/auth.py)
+    — every login attempt must be visible via `docker compose logs` with no
+    extra config, not just in the DB-only audit_record."""
+    await client.post("/api/auth/login", json={"email": "admin@example.com", "password": "test-admin-password"})
+    out = capfd.readouterr().out
+    lines = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
+    record = next(r for r in lines if r["event"] == "login_success")
+    assert record["app"] == "fireslog"
+    assert record["method"] == "password"
+    assert record["user"] == "admin@example.com"
+
+
+async def test_login_failure_emits_auth_log_line(client: AsyncClient, capfd: pytest.CaptureFixture[str]):
+    await client.post("/api/auth/login", json={"email": "admin@example.com", "password": "nope"})
+    out = capfd.readouterr().out
+    lines = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
+    record = next(r for r in lines if r["event"] == "login_failed")
+    assert record["method"] == "password"
+    assert record["user"] == "admin@example.com"
+    assert record["reason"]
 
 
 async def test_me_requires_auth(client: AsyncClient):
