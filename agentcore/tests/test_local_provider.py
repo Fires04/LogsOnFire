@@ -103,7 +103,12 @@ async def test_read_tail_handles_file_smaller_than_requested(tmp_path: Path):
     assert lines == ["only", "two"]
 
 
-async def test_list_directory_sorts_dirs_first(tmp_path: Path):
+async def test_list_directory_sorts_flat_alphabetically(tmp_path: Path):
+    """Directories and files are one flat, case-insensitive alphabetical
+    list — NOT directories-before-files. Found by a real user report
+    against a live browse (a "/" listing put every directory ahead of
+    "bin"/"lib"/etc. even though "bin" sorts before "srv") — don't
+    reintroduce the two-bucket sort."""
     (tmp_path / "zzz-dir").mkdir()
     (tmp_path / "aaa-dir").mkdir()
     (tmp_path / "aaa-file.log").write_text("x")
@@ -113,9 +118,7 @@ async def test_list_directory_sorts_dirs_first(tmp_path: Path):
     entries, truncated = await provider.list_directory(str(tmp_path))
     assert not truncated
     names = [e.name for e in entries]
-    assert names == ["aaa-dir", "zzz-dir", "aaa-file.log", "zzz-file.log"]
-    assert all(e.is_dir for e in entries[:2])
-    assert all(not e.is_dir for e in entries[2:])
+    assert names == ["aaa-dir", "aaa-file.log", "zzz-dir", "zzz-file.log"]
 
 
 async def test_list_directory_reports_permissions_and_readability(tmp_path: Path):

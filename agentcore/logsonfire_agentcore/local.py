@@ -302,12 +302,11 @@ class LocalFileProvider(LogProvider):
 
     async def list_directory(self, path: str) -> tuple[list[DirEntry], bool]:
         def _list() -> tuple[list[DirEntry], bool]:
-            dirs: list[DirEntry] = []
-            files: list[DirEntry] = []
+            entries: list[DirEntry] = []
             truncated = False
             with os.scandir(path) as it:
                 for e in it:
-                    if len(dirs) + len(files) >= MAX_RESOLVED_FILES:
+                    if len(entries) >= MAX_RESOLVED_FILES:
                         truncated = True
                         break
                     try:
@@ -316,19 +315,24 @@ class LocalFileProvider(LogProvider):
                     except OSError:
                         continue
                     entry_path = os.path.join(path, e.name)
-                    entry = DirEntry(
-                        name=e.name,
-                        path=entry_path,
-                        is_dir=is_dir,
-                        size=None if is_dir else st.st_size,
-                        mtime=st.st_mtime,
-                        permissions=stat.filemode(st.st_mode),
-                        readable=None if is_dir else os.access(entry_path, os.R_OK),
+                    entries.append(
+                        DirEntry(
+                            name=e.name,
+                            path=entry_path,
+                            is_dir=is_dir,
+                            size=None if is_dir else st.st_size,
+                            mtime=st.st_mtime,
+                            permissions=stat.filemode(st.st_mode),
+                            readable=None if is_dir else os.access(entry_path, os.R_OK),
+                        )
                     )
-                    (dirs if is_dir else files).append(entry)
-            dirs.sort(key=lambda d: d.name.lower())
-            files.sort(key=lambda d: d.name.lower())
-            return dirs + files, truncated
+            # One flat alphabetical (case-insensitive) list, directories and
+            # files mixed together — NOT directories-then-files. Found by
+            # direct user report against a real browse (the "/" listing put
+            # every directory ahead of "bin"/"lib" etc. even though "bin" <
+            # "srv" alphabetically) — don't reintroduce the two-bucket sort.
+            entries.sort(key=lambda d: d.name.lower())
+            return entries, truncated
 
         return await asyncio.to_thread(_list)
 
