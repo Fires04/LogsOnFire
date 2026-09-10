@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Stack, Text, TextInput } from '@mantine/core'
-import { IconSearch } from '@tabler/icons-react'
+import { Button, Group, Stack, Text, TextInput } from '@mantine/core'
+import { IconArrowLeft, IconSearch } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import LogPanel from './LogPanel'
 import type { LogSource, ResolveResponse } from '../types/models'
@@ -20,7 +20,11 @@ interface Props {
  */
 export default function LogSourceViewer({ logSourceId, title }: Props) {
   const [logSource, setLogSource] = useState<LogSource | null>(null)
-  const [candidates, setCandidates] = useState<string[] | null>(null)
+  // The full multi-match list, once resolved — kept around (unlike the old
+  // `candidates` state) even after a pick, so "back to matches" doesn't
+  // need to re-resolve from scratch.
+  const [matchList, setMatchList] = useState<string[] | null>(null)
+  const [showingList, setShowingList] = useState(false)
   const [candidateFilter, setCandidateFilter] = useState('')
   const [resolvedPath, setResolvedPath] = useState<string | undefined>(undefined)
   const [warning, setWarning] = useState<string | null>(null)
@@ -31,7 +35,8 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    setCandidates(null)
+    setMatchList(null)
+    setShowingList(false)
     setCandidateFilter('')
     setResolvedPath(undefined)
     setWarning(null)
@@ -57,7 +62,8 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
         } else if (result.files.length === 1) {
           setResolvedPath(result.files[0].path)
         } else {
-          setCandidates(result.files.map((f) => f.path))
+          setMatchList(result.files.map((f) => f.path))
+          setShowingList(true)
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load log source')
@@ -71,23 +77,23 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     }
   }, [logSourceId])
 
-  const filteredCandidates = useMemo(() => {
-    if (!candidates) return null
+  const filteredMatches = useMemo(() => {
+    if (!matchList) return null
     const needle = candidateFilter.trim().toLowerCase()
-    return needle ? candidates.filter((p) => p.toLowerCase().includes(needle)) : candidates
-  }, [candidates, candidateFilter])
+    return needle ? matchList.filter((p) => p.toLowerCase().includes(needle)) : matchList
+  }, [matchList, candidateFilter])
 
   if (loading) return <Text c="dimmed">Loading…</Text>
   if (error) return <Text c="red">{error}</Text>
   if (!logSource) return <Text c="red">Log source not found.</Text>
 
-  if (candidates) {
+  if (showingList && matchList) {
     return (
       <Stack gap="xs">
         <Text c="dimmed" size="sm">
           The pattern matches multiple files — pick one to watch:
         </Text>
-        {candidates.length > 8 && (
+        {matchList.length > 8 && (
           <TextInput
             placeholder="Filter…"
             leftSection={<IconSearch size={14} />}
@@ -95,23 +101,18 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
             onChange={(e) => setCandidateFilter(e.currentTarget.value)}
           />
         )}
-        {filteredCandidates && filteredCandidates.length === 0 && (
+        {filteredMatches && filteredMatches.length === 0 && (
           <Text c="dimmed" size="sm">
             No matches for "{candidateFilter}".
           </Text>
         )}
-        {filteredCandidates?.map((path) => (
+        {filteredMatches?.map((path) => (
           <Button
             key={path}
             variant="default"
             justify="flex-start"
             onClick={() => {
-              // Clearing `candidates` is what actually leaves the picker —
-              // without it the component kept re-rendering this same list
-              // on every click, since the `if (candidates)` branch above
-              // never stopped being true. Found via a real user report
-              // ("I click a match and nothing happens").
-              setCandidates(null)
+              setShowingList(false)
               setResolvedPath(path)
             }}
           >
@@ -124,6 +125,21 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
 
   return (
     <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
+      {matchList && (
+        <Group>
+          <Button
+            variant="subtle"
+            size="xs"
+            leftSection={<IconArrowLeft size={14} />}
+            onClick={() => {
+              setShowingList(true)
+              setResolvedPath(undefined)
+            }}
+          >
+            Back to matches
+          </Button>
+        </Group>
+      )}
       {warning && (
         <Text c="yellow" size="sm">
           ⚠ {warning}
