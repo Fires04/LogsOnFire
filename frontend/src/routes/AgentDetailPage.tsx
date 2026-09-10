@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { DataTable } from 'mantine-datatable'
@@ -11,9 +11,11 @@ import {
   Drawer,
   Group,
   Indicator,
+  ScrollArea,
   Stack,
   Text,
   Textarea,
+  TextInput,
   Title,
   Tooltip,
 } from '@mantine/core'
@@ -28,6 +30,7 @@ import {
   IconMinimize,
   IconPencil,
   IconRefresh,
+  IconSearch,
   IconTrash,
 } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
@@ -53,6 +56,16 @@ const MODE_COLOR: Record<LogSource['mode'], string> = {
   docker: 'indigo',
 }
 
+/** One entry per actual file a log source resolves to (a glob/regex source
+ * contributes one per match; exact_path/journal/docker contribute exactly
+ * one each) — flattened across every log source on the agent for the "Log
+ * files" quick-open list. */
+interface FlatLogFile {
+  sourceId: string
+  sourceLabel: string
+  path: string
+}
+
 export default function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>()
   const [agent, setAgent] = useState<Agent | null>(null)
@@ -62,8 +75,12 @@ export default function AgentDetailPage() {
   const [resolving, setResolving] = useState<Record<string, boolean>>({})
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [viewingResolvedPath, setViewingResolvedPath] = useState<string | undefined>(undefined)
   const [viewerExpanded, setViewerExpanded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [addingOpen, setAddingOpen] = useState(false)
+  const [allFiles, setAllFiles] = useState<FlatLogFile[] | null>(null)
+  const [allFilesFilter, setAllFilesFilter] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [triggeringUpdate, setTriggeringUpdate] = useState(false)
@@ -82,6 +99,55 @@ export default function AgentDetailPage() {
   useEffect(() => {
     refresh().finally(() => setLoading(false))
   }, [refresh])
+
+  // Flat "Log files" list: resolve every log source in parallel so it's
+  // one click straight to a live view, no per-source "Show matches" detour.
+  // exact_path is self-resolving (no agent round-trip needed); glob/regex/
+  // journal/docker all go through the same resolve endpoint the per-row
+  // "Show matches" action already uses — for journal/docker it happens to
+  // return exactly one file, already correctly prefixed
+  // (journal://.../docker://...), so no mode-specific handling needed here.
+  useEffect(() => {
+    if (!agentId) return
+    if (sources.length === 0) {
+      setAllFiles([])
+      return
+    }
+    let cancelled = false
+    setAllFiles(null)
+    Promise.all(
+      sources.map(async (s): Promise<FlatLogFile[]> => {
+        if (s.mode === 'exact_path') {
+          return [{ sourceId: s.id, sourceLabel: s.label, path: s.path_or_pattern }]
+        }
+        try {
+          const result = await api.post<ResolveResponse>(`/api/agents/${agentId}/log-sources/${s.id}/resolve`)
+          if (result.error) return []
+          return result.files.map((f) => ({ sourceId: s.id, sourceLabel: s.label, path: f.path }))
+        } catch {
+          return []
+        }
+      }),
+    ).then((groups) => {
+      if (!cancelled) setAllFiles(groups.flat())
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, sources])
+
+  const filteredAllFiles = useMemo(() => {
+    if (!allFiles) return null
+    const needle = allFilesFilter.trim().toLowerCase()
+    return needle
+      ? allFiles.filter((f) => f.path.toLowerCase().includes(needle) || f.sourceLabel.toLowerCase().includes(needle))
+      : allFiles
+  }, [allFiles, allFilesFilter])
+
+  function openResolvedFile(f: FlatLogFile) {
+    setViewingId(f.sourceId)
+    setViewingResolvedPath(f.path)
+  }
 
   async function handleSaveNotes() {
     setSavingNotes(true)
@@ -245,6 +311,58 @@ export default function AgentDetailPage() {
         </Alert>
       )}
 
+      <Card withBorder radius="md" p="md">
+        <Stack gap="xs">
+          <Title order={4}>Log files</Title>
+          <Text c="dimmed" size="sm">
+            Every file every log source below currently resolves to — click one to open it live.
+          </Text>
+          {(allFiles === null || allFiles.length > 8) && (
+            <TextInput
+              placeholder="Filter…"
+              leftSection={<IconSearch size={14} />}
+              value={allFilesFilter}
+              onChange={(e) => setAllFilesFilter(e.currentTarget.value)}
+            />
+          )}
+          {allFiles === null ? (
+            <Text c="dimmed" size="sm">
+              Resolving…
+            </Text>
+          ) : allFiles.length === 0 ? (
+            <Text c="dimmed" size="sm">
+              No log sources yet — add one below.
+            </Text>
+          ) : filteredAllFiles && filteredAllFiles.length === 0 ? (
+            <Text c="dimmed" size="sm">
+              No files match "{allFilesFilter}".
+            </Text>
+          ) : (
+            <ScrollArea.Autosize mah={280}>
+              <Stack gap={4}>
+                {filteredAllFiles?.map((f) => (
+                  <Button
+                    key={`${f.sourceId}:${f.path}`}
+                    variant="default"
+                    justify="space-between"
+                    fullWidth
+                    rightSection={
+                      <Badge variant="light" size="xs">
+                        {f.sourceLabel}
+                      </Badge>
+                    }
+                    onClick={() => openResolvedFile(f)}
+                    styles={{ label: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
+                  >
+                    {f.path}
+                  </Button>
+                ))}
+              </Stack>
+            </ScrollArea.Autosize>
+          )}
+        </Stack>
+      </Card>
+
       <Title order={4}>Log sources</Title>
       <DataTable
         withTableBorder
@@ -280,7 +398,13 @@ export default function AgentDetailPage() {
             render: (s) => (
               <Group gap={4} justify="flex-end" wrap="nowrap">
                 <Tooltip label="View live">
-                  <ActionIcon variant="subtle" onClick={() => setViewingId(s.id)}>
+                  <ActionIcon
+                    variant="subtle"
+                    onClick={() => {
+                      setViewingId(s.id)
+                      setViewingResolvedPath(undefined)
+                    }}
+                  >
                     <IconEye size={16} />
                   </ActionIcon>
                 </Tooltip>
@@ -335,7 +459,25 @@ export default function AgentDetailPage() {
         }}
       />
 
-      {agentId && <LogSourceForm agentId={agentId} onSubmit={handleCreate} />}
+      {agentId && (
+        <Button variant="default" onClick={() => setAddingOpen(true)} style={{ alignSelf: 'flex-start' }}>
+          + Add log source
+        </Button>
+      )}
+
+      {addingOpen && agentId && (
+        // No Modal `title` here — LogSourceForm already renders its own
+        // "Add log source" heading inside the Paper.
+        <Modal onClose={() => setAddingOpen(false)} wide>
+          <LogSourceForm
+            agentId={agentId}
+            onSubmit={async (input) => {
+              await handleCreate(input)
+              setAddingOpen(false)
+            }}
+          />
+        </Modal>
+      )}
 
       {editingId && agentId && (
         // No Modal `title` here — LogSourceForm already renders its own
@@ -354,6 +496,7 @@ export default function AgentDetailPage() {
         opened={viewingId !== null}
         onClose={() => {
           setViewingId(null)
+          setViewingResolvedPath(undefined)
           setViewerExpanded(false)
         }}
         position="right"
@@ -376,7 +519,7 @@ export default function AgentDetailPage() {
       >
         {viewingId && (
           <div style={{ height: 'calc(100vh - 100px)', display: 'flex' }}>
-            <LogSourceViewer logSourceId={viewingId} />
+            <LogSourceViewer logSourceId={viewingId} initialResolvedPath={viewingResolvedPath} />
           </div>
         )}
       </Drawer>
