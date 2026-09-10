@@ -9,6 +9,14 @@ interface Props {
   logSourceId: string
   /** Overrides the fetched log source's label in the panel header, if given. */
   title?: string
+  /** Skip the resolve step entirely and go straight to this exact path —
+   * used when the caller already knows exactly which file it wants (e.g.
+   * picked from AgentDetailPage's flat "Log files" list, which already ran
+   * resolve() for every source up front). Works for any mode, including
+   * journal/docker, since resolve() already returns their one
+   * correctly-prefixed (journal://, docker://) path — this is just that
+   * same value handed back in early instead of re-resolved. */
+  initialResolvedPath?: string
 }
 
 /**
@@ -18,7 +26,7 @@ interface Props {
  * Drawer on AgentDetailPage) and the standalone /view/log/:id route ("open
  * in new window"), so the two never drift apart.
  */
-export default function LogSourceViewer({ logSourceId, title }: Props) {
+export default function LogSourceViewer({ logSourceId, title, initialResolvedPath }: Props) {
   const [logSource, setLogSource] = useState<LogSource | null>(null)
   // The full multi-match list, once resolved — kept around (unlike the old
   // `candidates` state) even after a pick, so "back to matches" doesn't
@@ -46,6 +54,11 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
         const ls = await api.get<LogSource>(`/api/log-sources/${logSourceId}`)
         if (cancelled) return
         setLogSource(ls)
+
+        if (initialResolvedPath) {
+          setResolvedPath(initialResolvedPath)
+          return
+        }
 
         if (ls.mode === 'exact_path') {
           setResolvedPath(ls.path_or_pattern)
@@ -75,7 +88,7 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     return () => {
       cancelled = true
     }
-  }, [logSourceId])
+  }, [logSourceId, initialResolvedPath])
 
   const filteredMatches = useMemo(() => {
     if (!matchList) return null
