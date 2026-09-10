@@ -18,12 +18,13 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconRefresh, IconTrash } from '@tabler/icons-react'
+import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconPencil, IconRefresh, IconTrash } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import { httpBase } from '../lib/serverOrigin'
 import CopyField from '../components/CopyField'
 import LogSourceForm from '../components/LogSourceForm'
 import LogSourceViewer from '../components/LogSourceViewer'
+import Modal from '../components/Modal'
 import type { Agent, LogSource, LogSourceCreateInput, ResolveResponse, TriggerUpdateResult } from '../types/models'
 
 const MODE_LABEL: Record<LogSource['mode'], string> = {
@@ -50,6 +51,7 @@ export default function AgentDetailPage() {
   const [resolving, setResolving] = useState<Record<string, boolean>>({})
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [triggeringUpdate, setTriggeringUpdate] = useState(false)
@@ -106,6 +108,12 @@ export default function AgentDetailPage() {
   async function handleCreate(input: LogSourceCreateInput) {
     await api.post(`/api/agents/${agentId}/log-sources`, input)
     await refresh()
+  }
+
+  async function handleUpdate(id: string, input: LogSourceCreateInput) {
+    await api.patch(`/api/agents/${agentId}/log-sources/${id}`, input)
+    await refresh()
+    setEditingId(null)
   }
 
   async function handleDelete(id: string) {
@@ -269,6 +277,11 @@ export default function AgentDetailPage() {
                     <IconListSearch size={16} />
                   </ActionIcon>
                 </Tooltip>
+                <Tooltip label="Edit">
+                  <ActionIcon variant="subtle" onClick={() => setEditingId(s.id)}>
+                    <IconPencil size={16} />
+                  </ActionIcon>
+                </Tooltip>
                 <Tooltip label="Delete">
                   <ActionIcon variant="subtle" color="red" onClick={() => handleDelete(s.id)}>
                     <IconTrash size={16} />
@@ -310,7 +323,20 @@ export default function AgentDetailPage() {
         }}
       />
 
-      {agentId && <LogSourceForm agentId={agentId} onCreate={handleCreate} />}
+      {agentId && <LogSourceForm agentId={agentId} onSubmit={handleCreate} />}
+
+      {editingId && agentId && (
+        // No Modal `title` here — LogSourceForm already renders its own
+        // "Edit log source" heading inside the Paper, same as "Add log
+        // source" does inline; a second Modal-chrome title would duplicate it.
+        <Modal onClose={() => setEditingId(null)} wide>
+          <LogSourceForm
+            agentId={agentId}
+            initial={sources.find((s) => s.id === editingId)}
+            onSubmit={(input) => handleUpdate(editingId, input)}
+          />
+        </Modal>
+      )}
 
       <Drawer opened={viewingId !== null} onClose={() => setViewingId(null)} position="right" size="60%" title={
         <Group gap="sm">

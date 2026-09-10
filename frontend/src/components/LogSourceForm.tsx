@@ -6,6 +6,7 @@ import Modal from './Modal'
 import type {
   DockerContainersResponse,
   JournalUnitsResponse,
+  LogSource,
   LogSourceCreateInput,
   LogSourceMode,
   ResolveResponse,
@@ -13,7 +14,12 @@ import type {
 
 interface Props {
   agentId: string
-  onCreate: (input: LogSourceCreateInput) => Promise<void>
+  /** Present only when editing an existing log source — pre-fills the form
+   * and switches its copy/submit behavior (see `initial` usage below)
+   * instead of resetting the fields back to blank after a successful
+   * submit, which only makes sense for the "Add log source" case. */
+  initial?: LogSource
+  onSubmit: (input: LogSourceCreateInput) => Promise<void>
 }
 
 const DEBOUNCE_MS = 400
@@ -61,12 +67,15 @@ function suggestLabel(mode: LogSourceMode, pathOrPattern: string): string {
   return base || trimmed
 }
 
-export default function LogSourceForm({ agentId, onCreate }: Props) {
-  const [label, setLabel] = useState('')
-  const [labelTouched, setLabelTouched] = useState(false)
-  const [mode, setMode] = useState<LogSourceMode>('glob')
-  const [pathOrPattern, setPathOrPattern] = useState('')
-  const [regexBaseDir, setRegexBaseDir] = useState('')
+export default function LogSourceForm({ agentId, initial, onSubmit }: Props) {
+  const [label, setLabel] = useState(initial?.label ?? '')
+  // Editing an existing source starts with a real label already in place —
+  // the mode/pattern-driven auto-suggest (see the effect below) must never
+  // clobber it, same as once the user has typed into Label by hand.
+  const [labelTouched, setLabelTouched] = useState(initial != null)
+  const [mode, setMode] = useState<LogSourceMode>(initial?.mode ?? 'glob')
+  const [pathOrPattern, setPathOrPattern] = useState(initial?.path_or_pattern ?? '')
+  const [regexBaseDir, setRegexBaseDir] = useState(initial?.regex_base_dir ?? '')
   const [preview, setPreview] = useState<ResolveResponse | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -134,33 +143,38 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, mode, pathOrPattern, regexBaseDir])
 
-  async function onSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setBusy(true)
     try {
-      await onCreate({
+      await onSubmit({
         label,
         mode,
         path_or_pattern: pathOrPattern,
         regex_base_dir: mode === 'regex' ? regexBaseDir : undefined,
       })
-      setLabel('')
-      setLabelTouched(false)
-      setPathOrPattern('')
-      setRegexBaseDir('')
-      setPreview(null)
+      if (!initial) {
+        // "Add log source" stays mounted for the next one — clear it back
+        // to blank. An edit form lives in a modal that closes on success
+        // instead, so there's nothing to reset here for that case.
+        setLabel('')
+        setLabelTouched(false)
+        setPathOrPattern('')
+        setRegexBaseDir('')
+        setPreview(null)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add log source')
+      setError(err instanceof Error ? err.message : `Failed to ${initial ? 'save' : 'add'} log source`)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Paper component="form" onSubmit={onSubmit} withBorder p="md" radius="md">
+    <Paper component="form" onSubmit={handleSubmit} withBorder p="md" radius="md">
       <Stack gap="sm">
-        <Title order={4}>Add log source</Title>
+        <Title order={4}>{initial ? 'Edit log source' : 'Add log source'}</Title>
         <TextInput
           label="Label"
           value={label}
@@ -250,7 +264,7 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
 
         {error && <Text c="red" size="sm">{error}</Text>}
         <Button type="submit" loading={busy}>
-          Add log source
+          {initial ? 'Save changes' : 'Add log source'}
         </Button>
       </Stack>
 
@@ -261,6 +275,11 @@ export default function LogSourceForm({ agentId, onCreate }: Props) {
             onClose={() => setBrowsing(null)}
             onSelectFile={(path) => {
               setPathOrPattern(path)
+              // Picking one specific file is unambiguously an "exact path"
+              // intent — without this, browsing while still in the (default)
+              // glob mode left the mode badge reading "glob" for what's now
+              // really a literal single-file path.
+              setMode('exact_path')
               setBrowsing(null)
             }}
             onSelectDirectory={
