@@ -18,7 +18,18 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconArrowLeft, IconEye, IconExternalLink, IconListSearch, IconPencil, IconRefresh, IconTrash } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconEye,
+  IconExternalLink,
+  IconListSearch,
+  IconMaximize,
+  IconMinimize,
+  IconPencil,
+  IconRefresh,
+  IconTrash,
+} from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import { httpBase } from '../lib/serverOrigin'
 import CopyField from '../components/CopyField'
@@ -51,6 +62,7 @@ export default function AgentDetailPage() {
   const [resolving, setResolving] = useState<Record<string, boolean>>({})
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [viewerExpanded, setViewerExpanded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -338,16 +350,30 @@ export default function AgentDetailPage() {
         </Modal>
       )}
 
-      <Drawer opened={viewingId !== null} onClose={() => setViewingId(null)} position="right" size="60%" title={
-        <Group gap="sm">
-          <Text fw={600}>{sources.find((s) => s.id === viewingId)?.label}</Text>
-          {viewingId && (
-            <Link to={`/view/log/${viewingId}`} target="_blank" rel="noreferrer" style={{ color: 'var(--mantine-color-dimmed)' }}>
-              <IconExternalLink size={14} style={{ verticalAlign: -2 }} /> open in new window
-            </Link>
-          )}
-        </Group>
-      }>
+      <Drawer
+        opened={viewingId !== null}
+        onClose={() => {
+          setViewingId(null)
+          setViewerExpanded(false)
+        }}
+        position="right"
+        size={viewerExpanded ? '100%' : '60%'}
+        title={
+          <Group gap="sm">
+            <Text fw={600}>{sources.find((s) => s.id === viewingId)?.label}</Text>
+            <Tooltip label={viewerExpanded ? 'Shrink' : 'Expand to full width'}>
+              <ActionIcon variant="subtle" size="sm" onClick={() => setViewerExpanded((v) => !v)}>
+                {viewerExpanded ? <IconMinimize size={14} /> : <IconMaximize size={14} />}
+              </ActionIcon>
+            </Tooltip>
+            {viewingId && (
+              <Link to={`/view/log/${viewingId}`} target="_blank" rel="noreferrer" style={{ color: 'var(--mantine-color-dimmed)' }}>
+                <IconExternalLink size={14} style={{ verticalAlign: -2 }} /> open in new window
+              </Link>
+            )}
+          </Group>
+        }
+      >
         {viewingId && (
           <div style={{ height: 'calc(100vh - 100px)', display: 'flex' }}>
             <LogSourceViewer logSourceId={viewingId} />
