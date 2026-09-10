@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Button, Stack, Text } from '@mantine/core'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Stack, Text, TextInput } from '@mantine/core'
+import { IconSearch } from '@tabler/icons-react'
 import { api, ApiError } from '../lib/api'
 import LogPanel from './LogPanel'
 import type { LogSource, ResolveResponse } from '../types/models'
@@ -20,6 +21,7 @@ interface Props {
 export default function LogSourceViewer({ logSourceId, title }: Props) {
   const [logSource, setLogSource] = useState<LogSource | null>(null)
   const [candidates, setCandidates] = useState<string[] | null>(null)
+  const [candidateFilter, setCandidateFilter] = useState('')
   const [resolvedPath, setResolvedPath] = useState<string | undefined>(undefined)
   const [warning, setWarning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +32,7 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     setLoading(true)
     setError(null)
     setCandidates(null)
+    setCandidateFilter('')
     setResolvedPath(undefined)
     setWarning(null)
 
@@ -68,6 +71,12 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
     }
   }, [logSourceId])
 
+  const filteredCandidates = useMemo(() => {
+    if (!candidates) return null
+    const needle = candidateFilter.trim().toLowerCase()
+    return needle ? candidates.filter((p) => p.toLowerCase().includes(needle)) : candidates
+  }, [candidates, candidateFilter])
+
   if (loading) return <Text c="dimmed">Loading…</Text>
   if (error) return <Text c="red">{error}</Text>
   if (!logSource) return <Text c="red">Log source not found.</Text>
@@ -78,8 +87,34 @@ export default function LogSourceViewer({ logSourceId, title }: Props) {
         <Text c="dimmed" size="sm">
           The pattern matches multiple files — pick one to watch:
         </Text>
-        {candidates.map((path) => (
-          <Button key={path} variant="default" justify="flex-start" onClick={() => setResolvedPath(path)}>
+        {candidates.length > 8 && (
+          <TextInput
+            placeholder="Filter…"
+            leftSection={<IconSearch size={14} />}
+            value={candidateFilter}
+            onChange={(e) => setCandidateFilter(e.currentTarget.value)}
+          />
+        )}
+        {filteredCandidates && filteredCandidates.length === 0 && (
+          <Text c="dimmed" size="sm">
+            No matches for "{candidateFilter}".
+          </Text>
+        )}
+        {filteredCandidates?.map((path) => (
+          <Button
+            key={path}
+            variant="default"
+            justify="flex-start"
+            onClick={() => {
+              // Clearing `candidates` is what actually leaves the picker —
+              // without it the component kept re-rendering this same list
+              // on every click, since the `if (candidates)` branch above
+              // never stopped being true. Found via a real user report
+              // ("I click a match and nothing happens").
+              setCandidates(null)
+              setResolvedPath(path)
+            }}
+          >
             {path}
           </Button>
         ))}

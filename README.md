@@ -123,6 +123,43 @@ All configuration is environment variables (see `.env.example` for Docker,
 | `OIDC_ISSUER` | *(none)* | Authentik application's issuer URL, e.g. `https://authentik.example.lan/application/o/<slug>/` |
 | `OIDC_REDIRECT_URI` | *(none)* | must exactly match the redirect URI registered on the Authentik provider, e.g. `https://<host>/api/auth/oidc/callback` |
 
+## Log directories restricted to a specific group (multi-tenant hosts)
+
+The agent runs as its own unprivileged OS user (`logsonfire-agent` by
+default) — deliberately never as root, since the server can push it
+*any* path via a glob/regex log source, and a root agent would let
+anyone with `LOG_SOURCE_WRITE` (or anyone who compromises the server)
+read anything on that host. On a hosting-panel box (ISPConfig, cPanel,
+Plesk, ...) each site's logs are typically owned `root:<per-client-group>`
+with `750` permissions, so a glob like `/var/log/ispconfig/httpd/*/access.log`
+will silently match fewer sites than expected — no error, the agent just
+can't see into directories it's not in the group for.
+
+**Don't add the agent's user to those groups** — on ISPConfig-style setups
+a group like `client2` typically owns *several* unrelated sites' log
+directories at once, so joining it grants far more than intended. Instead,
+grant a narrow POSIX ACL on just the path(s) you actually want, and use a
+*default* ACL so every directory the panel creates there in the future
+inherits it automatically — no more manual steps per new site:
+
+```bash
+# one-time: install setfacl/getfacl if not already present
+apt-get install -y acl
+
+# grant read+traverse on everything that already exists under the parent
+setfacl -R -m u:logsonfire-agent:rx /var/log/ispconfig/httpd/
+
+# make it automatic for every site the panel creates there from now on
+setfacl -d -m u:logsonfire-agent:rx /var/log/ispconfig/httpd/
+```
+
+Verify with `getfacl /var/log/ispconfig/httpd/<site>` (look for a
+`user:logsonfire-agent:r-x` line). This is purely additive — it doesn't
+touch existing ownership or permission bits, so it can't affect how the
+panel or the sites themselves behave. The same cheatsheet is available
+in-app: the "Add/Edit log source" form shows it under "Pattern matching
+fewer files than expected?" for glob/regex-mode sources.
+
 ## Architecture (short version)
 
 - **Server** (`backend/`): FastAPI + SQLAlchemy (async) + SQLite. Never

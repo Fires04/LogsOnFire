@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { ActionIcon, Anchor, Breadcrumbs, Button, Group, ScrollArea, Stack, Table, Text, Title } from '@mantine/core'
-import { IconArrowUp, IconFile, IconFolder, IconLock } from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ActionIcon, Anchor, Breadcrumbs, Button, Group, ScrollArea, Stack, Table, Text, TextInput, Title } from '@mantine/core'
+import { IconArrowUp, IconFile, IconFolder, IconLock, IconSearch } from '@tabler/icons-react'
 import { api } from '../lib/api'
 import type { BrowseResponse, DirEntry } from '../types/models'
 
@@ -17,10 +17,12 @@ export default function FileExplorer({ agentId, onSelectFile, onSelectDirectory,
   const [data, setData] = useState<BrowseResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [requestError, setRequestError] = useState<string | null>(null)
+  const [filter, setFilter] = useState('')
 
   const load = (path?: string) => {
     setLoading(true)
     setRequestError(null)
+    setFilter('')
     const query = path ? `?path=${encodeURIComponent(path)}` : ''
     api
       .get<BrowseResponse>(`/api/agents/${agentId}/browse${query}`)
@@ -33,6 +35,12 @@ export default function FileExplorer({ agentId, onSelectFile, onSelectDirectory,
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId])
+
+  const filteredEntries = useMemo(() => {
+    if (!data) return []
+    const needle = filter.trim().toLowerCase()
+    return needle ? data.entries.filter((e) => e.name.toLowerCase().includes(needle)) : data.entries
+  }, [data, filter])
 
   function handleEntryClick(entry: DirEntry) {
     if (entry.is_dir) {
@@ -91,6 +99,15 @@ export default function FileExplorer({ agentId, onSelectFile, onSelectDirectory,
       {requestError && <Text c="red">{requestError}</Text>}
       {data?.error && <Text c="red">{data.error}</Text>}
 
+      {data && !loading && !data.error && data.entries.length > 8 && (
+        <TextInput
+          placeholder="Filter this folder…"
+          leftSection={<IconSearch size={14} />}
+          value={filter}
+          onChange={(e) => setFilter(e.currentTarget.value)}
+        />
+      )}
+
       {data && !loading && !data.error && (
         <ScrollArea.Autosize mah="50vh">
           <Table highlightOnHover verticalSpacing={4}>
@@ -102,7 +119,14 @@ export default function FileExplorer({ agentId, onSelectFile, onSelectDirectory,
                   </Table.Td>
                 </Table.Tr>
               )}
-              {data.entries.map((entry) => (
+              {data.entries.length > 0 && filteredEntries.length === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={3}>
+                    <Text c="dimmed">No entries match "{filter}".</Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+              {filteredEntries.map((entry) => (
                 <Table.Tr
                   key={entry.path}
                   onClick={() => handleEntryClick(entry)}
