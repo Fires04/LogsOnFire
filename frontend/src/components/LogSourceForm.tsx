@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Autocomplete, Button, Group, Loader, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Autocomplete, Button, Group, Loader, Paper, Select, Spoiler, Stack, Text, TextInput, Title } from '@mantine/core'
 import { api } from '../lib/api'
+import CopyField from './CopyField'
 import FileExplorer from './FileExplorer'
 import Modal from './Modal'
 import type {
@@ -260,6 +261,37 @@ export default function LogSourceForm({ agentId, initial, onSubmit }: Props) {
               </>
             )}
           </Stack>
+        )}
+
+        {(mode === 'glob' || mode === 'regex') && (
+          <Spoiler
+            maxHeight={0}
+            showLabel="Pattern matching fewer files than expected?"
+            hideLabel="Hide"
+            styles={{ control: { fontSize: 'var(--mantine-font-size-sm)' } }}
+          >
+            <Stack gap={4} pb="xs">
+              <Text size="sm" c="dimmed">
+                If some directories belong to a different Linux group (e.g. per-client ISPConfig
+                directories like <Text component="code" fz="sm">/var/log/ispconfig/httpd/&lt;site&gt;</Text>),
+                the agent silently can't see into them — no error, just fewer matches than expected. Grant its
+                OS user read+traverse with a POSIX ACL rather than adding it to the whole group (narrower, only
+                covers this path) — the second command makes it automatic for directories created later too:
+              </Text>
+              <CopyField
+                value={
+                  'setfacl -R -m u:logsonfire-agent:rx /path/to/parent-dir/\n' +
+                  'setfacl -d -m u:logsonfire-agent:rx /path/to/parent-dir/'
+                }
+              />
+              <Text size="sm" c="dimmed">
+                (<Text component="code" fz="sm">apt-get install acl</Text> first if{' '}
+                <Text component="code" fz="sm">setfacl</Text> isn't installed. Replace{' '}
+                <Text component="code" fz="sm">logsonfire-agent</Text> if the agent runs as a different OS
+                user on that host.)
+              </Text>
+            </Stack>
+          </Spoiler>
         )}
 
         {error && <Text c="red" size="sm">{error}</Text>}
